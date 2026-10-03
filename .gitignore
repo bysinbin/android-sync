@@ -1,0 +1,37 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Logs
+*.log
+mac-sync.log
+
+# Build outputs & binaries
+MacSync.app/
+MacSync.apk
+mediactl
+mac-app/MacSync
+mac-daemon/mac-sync
+mac-daemon/mediactl
+mac-daemon/mac-media-info
+
+# Android / Gradle build files
+.gradle/
+.kotlin/
+build/
+local.properties
+android-app/.gradle/
+android-app/.kotlin/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/

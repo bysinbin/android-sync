@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Mac Sync</string>
+    <string name="notification_service_label">Mac Sync Bildirim İletici</string>
+</resources>
