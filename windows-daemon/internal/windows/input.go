@@ -3,14 +3,24 @@ package windows
 import (
 	"log"
 	"strings"
+	"sync"
 	"time"
+	"unsafe"
 
 	"windows-sync/internal/protocol"
 )
 
 var (
-	procMouseEvent = user32.NewProc("mouse_event")
+	procMouseEvent   = user32.NewProc("mouse_event")
+	procSetCursorPos = user32.NewProc("SetCursorPos")
+
+	cursorMu    sync.Mutex
+	accumX      float64
+	accumY      float64
+	scrollAccum float64
 )
+
+
 
 const (
 	MOUSEEVENTF_MOVE       = 0x0001
@@ -43,34 +53,62 @@ const (
 func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
 	switch strings.ToLower(p.Type) {
 	case "move":
-		if p.DX != 0 || p.DY != 0 {
-			// dx and dy are relative pixel movements
-			procMouseEvent.Call(MOUSEEVENTF_MOVE, uintptr(int32(p.DX)), uintptr(int32(p.DY)), 0, 0)
+		cursorMu.Lock()
+		accumX += float64(p.DX)
+		accumY += float64(p.DY)
+
+		moveX := int32(accumX)
+		moveY := int32(accumY)
+
+		if moveX != 0 || moveY != 0 {
+			accumX -= float64(moveX)
+			accumY -= float64(moveY)
+
+			var pt POINT
+			r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+			if r != 0 {
+				// SetCursorPos is 100% reliable across RDP, virtual displays, and physical console
+				procSetCursorPos.Call(uintptr(pt.X+moveX), uintptr(pt.Y+moveY))
+			} else {
+				procMouseEvent.Call(MOUSEEVENTF_MOVE, uintptr(moveX), uintptr(moveY), 0, 0)
+			}
 		}
+		cursorMu.Unlock()
+
 	case "click":
 		switch strings.ToLower(p.Button) {
 		case "left", "":
 			procMouseEvent.Call(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 			procMouseEvent.Call(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
 		case "right":
 			procMouseEvent.Call(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 			procMouseEvent.Call(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
 		case "middle":
 			procMouseEvent.Call(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(15 * time.Millisecond)
 			procMouseEvent.Call(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
 		}
 	case "scroll":
-		// Windows mouse wheel delta: standard click is 120 (positive = up, negative = down)
-		amount := p.ScrollY
+		cursorMu.Lock()
+		amount := float64(p.ScrollY)
 		if amount == 0 {
-			amount = int(p.DY) * 20
+			amount = float64(p.DY) * 20.0
 		}
-		if amount != 0 {
-			procMouseEvent.Call(MOUSEEVENTF_WHEEL, 0, 0, uintptr(int32(amount)), 0)
+		scrollAccum += amount
+
+		for scrollAccum >= 50 {
+			procMouseEvent.Call(MOUSEEVENTF_WHEEL, 0, 0, uintptr(120), 0)
+			scrollAccum -= 50
 		}
+		for scrollAccum <= -50 {
+			procMouseEvent.Call(MOUSEEVENTF_WHEEL, 0, 0, uintptr(0xFFFFFF88), 0)
+			scrollAccum += 50
+		}
+
+		cursorMu.Unlock()
+
 	case "key":
 		k := strings.ToUpper(strings.TrimSpace(p.Key))
 		var vk byte

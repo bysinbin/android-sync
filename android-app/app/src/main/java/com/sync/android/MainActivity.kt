@@ -850,10 +850,17 @@ class MainActivity : AppCompatActivity() {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (event.pointerCount == 1 && !isScrolling) {
-                        val dx = (event.x - lastTouchX) * touchpadSensitivity
-                        val dy = (event.y - lastTouchY) * touchpadSensitivity
+                        val rawDx = (event.x - lastTouchX)
+                        val rawDy = (event.y - lastTouchY)
                         lastTouchX = event.x
                         lastTouchY = event.y
+
+                        // Precision acceleration curve (Mac/Precision Touchpad style)
+                        val distance = Math.hypot(rawDx.toDouble(), rawDy.toDouble()).toFloat()
+                        val speedMultiplier = if (distance > 20f) 2.4f else if (distance > 6f) 1.6f else 1.1f
+                        val dx = rawDx * touchpadSensitivity * speedMultiplier
+                        val dy = rawDy * touchpadSensitivity * speedMultiplier
+
                         if (Math.abs(dx) > 0.05f || Math.abs(dy) > 0.05f) {
                             sendTouchpadMove(dx, dy)
                         }
@@ -861,14 +868,14 @@ class MainActivity : AppCompatActivity() {
                         val currentY = (event.getY(0) + event.getY(1)) / 2f
                         val deltaY = currentY - lastTouchY
                         lastTouchY = currentY
-                        if (Math.abs(deltaY) > 2f) {
-                            // Standard wheel delta in Windows
-                            val scrollAmount = (deltaY * 6f).toInt()
+                        if (Math.abs(deltaY) > 1.5f) {
+                            val scrollAmount = (deltaY * 12f).toInt()
                             sendTouchpadScroll(scrollAmount)
                         }
                     }
                     true
                 }
+
                 MotionEvent.ACTION_UP -> {
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     val duration = System.currentTimeMillis() - touchDownTime
