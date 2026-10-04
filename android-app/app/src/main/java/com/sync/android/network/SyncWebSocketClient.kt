@@ -57,6 +57,7 @@ class SyncWebSocketClient(
     var onFileAvailableReceived: ((payload: FileAvailablePayload, hostKey: String) -> Unit)? = null
     var onNotificationReplyReceived: ((payload: NotificationReplyPayload, hostKey: String) -> Unit)? = null
     var onNotificationActionReceived: ((payload: NotificationActionPayload, hostKey: String) -> Unit)? = null
+    var onNotificationDismissReceived: ((notificationKey: String, hostKey: String) -> Unit)? = null
     var onOpenUrlReceived: ((url: String, hostKey: String) -> Unit)? = null
     var onContactsRequestReceived: ((hostKey: String) -> Unit)? = null
     var onPhotosRequestReceived: ((hostKey: String) -> Unit)? = null
@@ -334,6 +335,18 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.NOTIFICATION_DISMISS -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val dismissPayload = Gson().fromJson(msg.payload, NotificationDismissPayload::class.java)
+                            Log.d(TAG, "[$hostName] Bildirim kapatma isteği alındı: key=${dismissPayload.notification_key}")
+                            onNotificationDismissReceived?.invoke(dismissPayload.notification_key, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "NOTIFICATION_DISMISS parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
                 ProtocolEvents.OPEN_URL -> {
                     if (host?.isAuthorized == true) {
                         try {
@@ -497,6 +510,19 @@ class SyncWebSocketClient(
         for (host in hosts.values) {
             if (host.isConnected && host.isAuthorized) {
                 host.webSocket?.send(payload.toSyncMessage(ProtocolEvents.NOTIFICATION))
+            }
+        }
+    }
+
+    fun sendNotificationDismiss(key: String, id: String? = null) {
+        val payload = NotificationDismissPayload(
+            notification_key = key,
+            notification_id = id
+        )
+        val json = payload.toSyncMessage(ProtocolEvents.NOTIFICATION_DISMISS)
+        for (host in hosts.values) {
+            if (host.isConnected && host.isAuthorized) {
+                host.webSocket?.send(json)
             }
         }
     }

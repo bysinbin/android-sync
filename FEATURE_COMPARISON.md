@@ -15,7 +15,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | PC/Mac Bildirimlerinin Telefona Akışı | ✅ **Var (Çift Yönlü)** | ❌ Yok (Yalnızca Tel -> PC) | ❌ Yok |
 | | Bildirime PC'den Doğrudan Yanıt Verme (Inline Reply) | ✅ **Var (Tamamlandı)** | ✅ Var | ✅ Var |
 | | Bildirim Aksiyon Butonları (Arşivle, Onayla vb.) | ✅ **Var (Tamamlandı)** | ✅ Var | ✅ Var |
-| | Çift Yönlü Bildirim Kapatma (Dismiss Sync) | ❌ Eksik | ✅ Var | ✅ Var |
+| | Çift Yönlü Bildirim Kapatma (Dismiss Sync) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ✅ Var | ✅ Var |
 | **Medya & Ses** | Çift Yönlü Bağımsız Medya Takibi & Kontrolü | ✅ **Var (Özgün)** | ❌ Kısıtlı | ❌ Tekil |
 | | Medya Süresi İlerleme Çubuğu (Seek Bar & ±15s) | ✅ Var | ❌ Yok | ⚠️ Kısmi |
 | | Arama Sırasında PC Medyasını Otomatik Duraklatma | ✅ Var | ❌ Yok | ✅ Var |
@@ -136,6 +136,7 @@ graph TD
 ### Tamamlanan ve Sıradaki Geliştirme Fazları:
 - **Faz 1 (Yüksek Öncelik - Tamamlananlar):**
   - **Bildirim Aksiyon Butonları (Notification Actions):** *(✅ Tamamlandı)* Telefonda bildirimle gelen interaktif butonların (Örn: "Okundu Say", "Arşive Kaldır", "Onayla") PC ve Mac arayüzünde canlı butonlar olarak listelenmesi ve tıklandığında anında telefonda tetiklenmesi.
+  - **Çift Yönlü Bildirim Kapatma (Dismiss Sync):** *(✅ Tamamlandı)* PC'de veya Mac'te bildirim kapatıldığında (✕) anında telefondan da silinmesi; aynı şekilde telefonda kaydırılarak kapatılan bildirimlerin PC ve Mac arayüzünden anında temizlenmesi.
   - **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas bir dokunmatik laptop trackpad'i (1 parmak imleç, 1 parmak tıkla sol tık, 2 parmak tıkla sağ tık, 2 parmak dikey kaydır kaydırma/scroll) veya slayt / sunum uzaktan kumandası (F5, Esc, Enter, Önceki/Sonraki Slayt) olarak kullanarak Windows ve macOS'u gecikmesiz yönetebilme.
 - **Faz 2 (İleri Düzey Entegrasyonlar - Sonraki):**
   - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme ve uzaktan kontrol.

@@ -211,6 +211,19 @@ func (s *SyncServer) addNotification(n protocol.NotificationPayload) {
 	}
 }
 
+func (s *SyncServer) removeNotification(key, id string) {
+	s.notifsMu.Lock()
+	defer s.notifsMu.Unlock()
+	filtered := make([]protocol.NotificationPayload, 0, len(s.notifications))
+	for _, n := range s.notifications {
+		if (key != "" && n.Key == key) || (id != "" && n.ID == id) {
+			continue
+		}
+		filtered = append(filtered, n)
+	}
+	s.notifications = filtered
+}
+
 func (s *SyncServer) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
@@ -752,6 +765,31 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key, "index": actionIndex})
 	})
 
+	// Notification Dismiss API (Dismiss on PC and Sync to Phone)
+	mux.HandleFunc("/notification/dismiss", func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		id := r.URL.Query().Get("id")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if k := r.FormValue("key"); k != "" {
+				key = k
+			}
+			if i := r.FormValue("id"); i != "" {
+				id = i
+			}
+		}
+
+		if key == "" && id == "" {
+			http.Error(w, "key or id required", http.StatusBadRequest)
+			return
+		}
+
+		s.removeNotification(key, id)
+		s.SendNotificationDismiss(key, id)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key, "id": id})
+	})
+
 	// Remote Action API (Lock, Sleep, Shutdown, Restart)
 	mux.HandleFunc("/remote/action", func(w http.ResponseWriter, r *http.Request) {
 		action := r.URL.Query().Get("action")
@@ -1217,6 +1255,13 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			log.Printf("[Galeri] %d adet fotoğraf telefondan başarıyla senkronize edildi", len(p.Photos))
 		}
 
+	case protocol.EventNotificationDismiss:
+		var p protocol.NotificationDismissPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.removeNotification(p.NotificationKey, p.NotificationID)
+			log.Printf("[Bildirim] Telefonda kapatılan bildirim PC'den kaldırıldı: key=%s, id=%s", p.NotificationKey, p.NotificationID)
+		}
+
 	case protocol.EventTouchpadEvent:
 		var p protocol.TouchpadEventPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
@@ -1301,6 +1346,19 @@ func (s *SyncServer) SendNotificationAction(key string, actionIndex int) {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Bildirim Eylemi] Eylem isteği gönderildi (%s, index: %d)", key, actionIndex)
+	}
+}
+
+// SendNotificationDismiss requests dismissal of an Android notification.
+func (s *SyncServer) SendNotificationDismiss(key, id string) {
+	payload := protocol.NotificationDismissPayload{
+		NotificationKey: key,
+		NotificationID:  id,
+	}
+	msg, err := protocol.NewMessage(protocol.EventNotificationDismiss, payload)
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Bildirim Kapatma] Kapatma isteği gönderildi: key=%s, id=%s", key, id)
 	}
 }
 
@@ -2888,10 +2946,13 @@ const dashboardHTML = `<!DOCTYPE html>
                                     }).join('') +
                                 '</div>';
                             }
-                            return '<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px;">' +
-                                '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
+                            return '<div class="notif-item-card" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px; position:relative; transition:all 0.3s ease;">' +
+                                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
                                     '<strong style="color:var(--accent-blue); font-size:13px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
-                                    '<span style="font-size:11px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
+                                    '<div style="display:flex; align-items:center; gap:8px;">' +
+                                        '<span style="font-size:11px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
+                                        '<button title="Bildirimi Kapat (Telefonda da silinir)" onclick="dismissNotification(\'' + escapeHtml(n.key || '') + '\', \'' + escapeHtml(n.id || '') + '\', this)" style="background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.color=\'var(--accent-red)\'; this.style.background=\'rgba(248,81,73,0.15)\'" onmouseout="this.style.color=\'var(--text-muted)\'; this.style.background=\'none\'">✕</button>' +
+                                    '</div>' +
                                 '</div>' +
                                 '<div style="font-weight:700; font-size:14px;">' + escapeHtml(n.title || '') + '</div>' +
                                 '<div style="font-size:13px; color:var(--text-secondary); margin-top:2px;">' + escapeHtml(n.text || '') + '</div>' +
@@ -3270,6 +3331,23 @@ const dashboardHTML = `<!DOCTYPE html>
                 }
             } catch (e) {
                 console.error(e);
+            }
+        }
+
+        async function dismissNotification(key, id, btn) {
+            if (btn) {
+                btn.disabled = true;
+                const card = btn.closest('.notif-item-card');
+                if (card) {
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateX(20px)';
+                    setTimeout(() => card.remove(), 280);
+                }
+            }
+            try {
+                await fetch('/notification/dismiss?key=' + encodeURIComponent(key || '') + '&id=' + encodeURIComponent(id || ''), { method: 'POST' });
+            } catch (e) {
+                console.error('Bildirim kapatma hatası:', e);
             }
         }
 

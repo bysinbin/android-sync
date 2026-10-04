@@ -26,6 +26,7 @@ object ProtocolEvents {
     const val FILE_UPLOAD_NOTIFY = "file_upload_notify"
     const val NOTIFICATION_REPLY = "notification_reply"
     const val NOTIFICATION_ACTION = "notification_action"
+    const val NOTIFICATION_DISMISS = "notification_dismiss"
     const val TOUCHPAD_EVENT = "touchpad_event"
     const val REMOTE_ACTION = "remote_action"
     const val OPEN_URL = "open_url"
@@ -117,6 +118,11 @@ data class NotificationReplyPayload(
 data class NotificationActionPayload(
     val notification_key: String,
     val action_index: Int
+)
+
+data class NotificationDismissPayload(
+    val notification_key: String,
+    val notification_id: String? = null
 )
 
 data class TouchpadEventPayload(

@@ -26,6 +26,7 @@ const (
 	EventFileUploadNotify     = "file_upload_notify"
 	EventNotificationReply    = "notification_reply"
 	EventNotificationAction   = "notification_action"
+	EventNotificationDismiss  = "notification_dismiss"
 	EventTouchpadEvent        = "touchpad_event"
 	EventRemoteAction         = "remote_action"
 	EventOpenUrl              = "open_url"
@@ -208,6 +209,12 @@ type NotificationReplyPayload struct {
 type NotificationActionPayload struct {
 	NotificationKey string `json:"notification_key"`
 	ActionIndex     int    `json:"action_index"`
+}
+
+// NotificationDismissPayload is sent to dismiss/cancel a notification on phone or remove it on Mac.
+type NotificationDismissPayload struct {
+	NotificationKey string `json:"notification_key"`
+	NotificationID  string `json:"notification_id,omitempty"`
 }
 
 // TouchpadEventPayload is sent when the user uses the phone screen as a trackpad / remote.

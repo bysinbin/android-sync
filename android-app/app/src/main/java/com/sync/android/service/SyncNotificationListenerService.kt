@@ -82,6 +82,19 @@ class SyncNotificationListenerService : NotificationListenerService() {
             Log.w(TAG, "Aksiyon indeksi bulunamadı ($key, idx: $actionIndex)")
             return false
         }
+
+        fun dismissNotification(key: String): Boolean {
+            val service = instance ?: return false
+            return try {
+                service.cancelNotification(key)
+                cachedNotifications.remove(key)
+                Log.d(TAG, "Bildirim başarıyla kapatıldı ($key)")
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Bildirim kapatma hatası ($key): ${e.message}", e)
+                false
+            }
+        }
     }
 
     override fun onCreate() {
@@ -196,11 +209,15 @@ class SyncNotificationListenerService : NotificationListenerService() {
                      pkgName.contains("dialer") ||
                      pkgName.contains("incallui") ||
                      pkgName.contains("telecom")
-        if (isCall) {
-            Log.d(TAG, "Çağrı bildirimi kaldırıldı (Arama bitti veya cevaplandı)")
-            val ws = SyncForegroundService.instance?.webSocketClient
-            if (ws?.isConnected == true) {
+        val ws = SyncForegroundService.instance?.webSocketClient
+        if (ws?.isConnected == true) {
+            if (isCall) {
+                Log.d(TAG, "Çağrı bildirimi kaldırıldı (Arama bitti veya cevaplandı)")
                 ws.sendCallState(state = "IDLE", number = "", callerName = "")
+            }
+            // Kendi servis bildirimimiz haricindekileri PC'ye kapatıldı olarak ilet
+            if (pkgName != packageName) {
+                ws.sendNotificationDismiss(sbn.key, sbn.id.toString())
             }
         }
     }
