@@ -21,6 +21,8 @@ windows-sync.exe
 windows-daemon/windows-sync.exe
 mac-sync
 *.exe
+*~
+*.exe~
 
 # Android / Gradle build files
 .gradle/
