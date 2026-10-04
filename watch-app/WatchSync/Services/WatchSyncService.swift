@@ -335,6 +335,14 @@ class WatchSyncService: ObservableObject {
         sendRestCommand(path: "/ringer/set", params: ["mode": mode])
     }
     
+    func muteAll() {
+        WKInterfaceDevice.current().play(.click)
+        // Mac sesini kapat
+        adjustVolume(by: -100)
+        // Telefonu sessize al
+        setRingerMode("silent")
+    }
+    
     func answerCall() {
         WKInterfaceDevice.current().play(.success)
         sendRestCommand(path: "/call/action", params: ["action": "ANSWER"])

@@ -32,25 +32,25 @@ struct RemoteActionsView: View {
                     syncService.sleepMac()
                 }
                 
+                // Dual Device Mute All
+                ActionButton(
+                    title: "Tümünü Sessize Al",
+                    subtitle: "Mac & Telefon aynı anda",
+                    icon: "speaker.slash.fill",
+                    color: .red
+                ) {
+                    syncService.muteAll()
+                }
+                
                 // Refresh Status
                 ActionButton(
-                    title: "Durumu Yenile",
-                    subtitle: "Mac & Telefon senkronu",
+                    title: "Ekosistemi Yenile",
+                    subtitle: "Mac + Telefon anlık senkron",
                     icon: "arrow.triangle.2.circlepath",
                     color: .blue
                 ) {
                     WKInterfaceDevice.current().play(.click)
                     syncService.fetchStatus()
-                }
-                
-                // Mute Mac
-                ActionButton(
-                    title: "Mac Sesi Kapat",
-                    subtitle: "Sessize alır",
-                    icon: "speaker.slash.fill",
-                    color: .red
-                ) {
-                    syncService.adjustVolume(by: -100)
                 }
             }
             .padding(.horizontal, 4)

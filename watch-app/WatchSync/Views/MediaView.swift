@@ -15,9 +15,44 @@ struct MediaView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                // MARK: - Source Selector (Mac vs Telefon)
+                // MARK: - Dual Device Simultaneous Live Status Bar
+                HStack(spacing: 8) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "laptopcomputer")
+                            .font(.system(size: 9))
+                            .foregroundColor(syncService.isConnected ? .green : .red)
+                        Text("Mac")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(syncService.isConnected ? .primary : .secondary)
+                    }
+                    
+                    Text("•")
+                        .font(.system(size: 8))
+                        .foregroundColor(.secondary)
+                    
+                    HStack(spacing: 3) {
+                        Image(systemName: "iphone")
+                            .font(.system(size: 9))
+                            .foregroundColor(syncService.isPhoneConnected ? .green : .orange)
+                        Text(syncService.isPhoneConnected ? "Tel %\(syncService.deviceInfo.batteryLevel)" : "Tel Bekleniyor")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(syncService.isPhoneConnected ? .primary : .secondary)
+                        if syncService.deviceInfo.isCharging {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.yellow)
+                        }
+                    }
+                }
+                .padding(.vertical, 3)
+                .padding(.horizontal, 8)
+                .background(Color.white.opacity(0.08))
+                .cornerRadius(10)
+                
+                // MARK: - Source Selector (Mac vs Telefon - Çift Yönlü Eşzamanlı Kontrol)
                 HStack(spacing: 6) {
                     ForEach(MediaSource.allCases) { source in
+                        let isThisPlaying = (source == .mac ? syncService.macMedia.isPlaying : syncService.phoneMedia.isPlaying)
                         Button(action: {
                             WKInterfaceDevice.current().play(.click)
                             syncService.selectedSource = source
@@ -27,6 +62,12 @@ struct MediaView: View {
                                     .font(.system(size: 11, weight: .semibold))
                                 Text(source.title)
                                     .font(.system(size: 11, weight: .bold))
+                                
+                                if isThisPlaying {
+                                    Circle()
+                                        .fill(Color.green)
+                                        .frame(width: 5, height: 5)
+                                }
                             }
                             .padding(.vertical, 4)
                             .padding(.horizontal, 8)
@@ -41,7 +82,7 @@ struct MediaView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.top, 2)
+                .padding(.top, 1)
                 
                 // MARK: - Track Info
                 VStack(spacing: 2) {
