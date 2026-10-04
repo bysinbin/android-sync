@@ -6036,6 +6036,14 @@ const dashboardHTML = `<!DOCTYPE html>
         loadPhotosList();
         window.addEventListener('DOMContentLoaded', setupDropZone);
         setTimeout(setupDropZone, 500);
+
+        try {
+            const urlParams = new URLSearchParams(window.location.search);
+            const initialTab = urlParams.get('tab') || window.location.hash.replace('#', '');
+            if (initialTab) {
+                switchTab(initialTab);
+            }
+        } catch (_) {}
     </script>
 </body>
 </html>

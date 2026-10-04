@@ -843,6 +843,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         menu.addItem(macIpItem)
         menu.addItem(NSMenuItem.separator())
         
+        // --- 2. ANDROID-SYNC ÖZELLİKLERİ & MODÜLLERİ ---
+        let featuresHeader = NSMenuItem(title: "🚀 ANDROID-SYNC ÖZELLİKLERİ", action: nil, keyEquivalent: "")
+        featuresHeader.isEnabled = false
+        menu.addItem(featuresHeader)
+        
+        menu.addItem(NSMenuItem(title: "🌐  Web Kontrol Panelini Aç (Tüm Modüller) ➔", action: #selector(openWebDashboard), keyEquivalent: "w"))
+        menu.addItem(NSMenuItem(title: "📱  Canlı Ekran Yansıtma & Kumanda ➔", action: #selector(openScreenMirrorTab), keyEquivalent: "s"))
+        menu.addItem(NSMenuItem(title: "🔔  Android Bildirimleri & Yanıt ➔", action: #selector(openNotificationsTab), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "💾  Telefon Depolamasını Finder'a Bağla (WebDAV)", action: #selector(mountPhoneStorage), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "📶  Kişisel Erişim Noktası (Hotspot) Aç/Kapat", action: #selector(togglePhoneHotspot), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "💬  Mesajlar (SMS) & Rehber ➔", action: #selector(openSmsTab), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "🖼️  Fotoğraf Galerisi Gezgini ➔", action: #selector(openPhotosTab), keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        
         // --- 2. MEDYA KONTROLLERİ ---
         let mediaHeader = NSMenuItem(title: "🎵 MAC MEDYA KONTROLÜ (TÜM SİSTEM)", action: nil, keyEquivalent: "")
         mediaHeader.isEnabled = false
@@ -1221,6 +1235,47 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
         if let url = URL(string: "http://127.0.0.1:42424/audio/stream") {
             NSWorkspace.shared.open(url)
         }
+    }
+    
+    // MARK: - Android-Sync Feature Actions
+    @objc func openWebDashboard() {
+        if let url = URL(string: "http://localhost:42424/") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    @objc func openScreenMirrorTab() {
+        if let url = URL(string: "http://localhost:42424/?tab=screen") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    @objc func openNotificationsTab() {
+        if let url = URL(string: "http://localhost:42424/?tab=notifications") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    @objc func openSmsTab() {
+        if let url = URL(string: "http://localhost:42424/?tab=sms") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    @objc func openPhotosTab() {
+        if let url = URL(string: "http://localhost:42424/?tab=photos") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+    
+    @objc func mountPhoneStorage() {
+        guard let url = URL(string: "http://127.0.0.1:42424/storage/mount") else { return }
+        URLSession.shared.dataTask(with: url).resume()
+    }
+    
+    @objc func togglePhoneHotspot() {
+        guard let url = URL(string: "http://127.0.0.1:42424/hotspot/toggle") else { return }
+        URLSession.shared.dataTask(with: url).resume()
     }
     
     // MARK: - Permission Handlers
