@@ -24,6 +24,8 @@
     <true/>
     <key>WKRunsIndependentlyOfCompanionApp</key>
     <true/>
+    <key>WKWatchOnly</key>
+    <true/>
     <key>NSLocalNetworkUsageDescription</key>
     <string>MacSync, yerel ağdaki Mac bilgisayarınız ve Android telefonunuz ile senkronize olmak için yerel ağ izni gerektirir.</string>
     <key>NSBonjourServices</key>
