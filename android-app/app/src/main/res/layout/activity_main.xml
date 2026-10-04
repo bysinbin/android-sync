@@ -1,511 +1,1215 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_dark"
-    android:fillViewport="true">
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
 
+    <!-- Top App Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="20dp">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="20dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="12dp">
 
-        <!-- Header -->
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Android Sync"
+                android:textColor="@color/text_primary"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvPhoneModel"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Windows &amp; Mac Güvenli Ekosistem"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvStatusBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card_bg"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="6dp"
+            android:text="🟡 Bağlantı Aranıyor"
+            android:textColor="@color/accent_orange"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Sleek Glassmorphic Tab Bar -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="10dp">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="24dp">
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Mac Sync"
-                    android:textColor="@color/text_primary"
-                    android:textSize="26sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Yerel Ağ Entegrasyonu"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-            </LinearLayout>
+            android:gravity="center_vertical">
 
             <TextView
-                android:id="@+id/tvStatusBadge"
+                android:id="@+id/tabBtnComputers"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="@drawable/card_bg"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="6dp"
-                android:text="⚪ Aranıyor..."
-                android:textColor="@color/accent_orange"
-                android:textSize="12sp"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_active_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="💻 Cihazlar"
+                android:textColor="@color/accent_blue"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/tabBtnMedia"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_inactive_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="🎵 Medya &amp; Süre"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/tabBtnClipboard"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_inactive_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="📋 Pano &amp; SMS"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/tabBtnSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_inactive_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="⚙️ İzinler"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
                 android:textStyle="bold" />
         </LinearLayout>
+    </HorizontalScrollView>
 
-        <!-- Card: Bağlantı Bilgisi -->
+    <!-- Main Scrollable Area -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
             android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
+            android:paddingHorizontal="16dp"
+            android:paddingBottom="24dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="BAĞLANTI DURUMU"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <TextView
-                android:id="@+id/tvServerInfo"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Mac aranıyor (UDP port 42425)..."
-                android:textColor="@color/text_primary"
-                android:textSize="15sp" />
-
+            <!-- ============================================== -->
+            <!-- TAB 1: COMPUTERS & MESH PANEL -->
+            <!-- ============================================== -->
             <LinearLayout
+                android:id="@+id/panelComputers"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="12dp">
+                android:orientation="vertical"
+                android:visibility="visible">
 
-                <EditText
-                    android:id="@+id/etServerIp"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/card_bg"
-                    android:hint="Mac IP (Örn: 192.168.254.95)"
-                    android:textColorHint="@color/text_secondary"
-                    android:textColor="@color/text_primary"
-                    android:paddingHorizontal="12dp"
-                    android:singleLine="true"
-                    android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/btnDirectConnect"
-                    android:layout_width="wrap_content"
-                    android:layout_height="44dp"
-                    android:layout_marginStart="8dp"
-                    android:background="@drawable/btn_primary"
-                    android:paddingHorizontal="16dp"
-                    android:text="Bağlan"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-            </LinearLayout>
-
-            <Button
-                android:id="@+id/btnReconnect"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/btn_primary"
-                android:text="Otomatik Tara (UDP Keşfi)"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-        </LinearLayout>
-
-        <!-- Card: Gerekli İzinler -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SİSTEM İZİNLERİ"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvNotifPermissionStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="🔔 Bildirim Erişimi: Bekleniyor"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/btnGrantNotification"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:background="@drawable/btn_primary"
-                    android:paddingHorizontal="12dp"
-                    android:text="İzin Ver"
-                    android:textColor="@color/white"
-                    android:textSize="12sp"
-                    android:textAllCaps="false" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvPhonePermissionStatus"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="📞 Çağrı/Arama Durumu: Bekleniyor"
-                    android:textColor="@color/text_primary"
-                    android:textSize="14sp" />
-
-                <Button
-                    android:id="@+id/btnGrantPhone"
-                    android:layout_width="wrap_content"
-                    android:layout_height="36dp"
-                    android:background="@drawable/btn_primary"
-                    android:paddingHorizontal="12dp"
-                    android:text="İzin Ver"
-                    android:textColor="@color/white"
-                    android:textSize="12sp"
-                    android:textAllCaps="false" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <!-- Card: Mac Medya Kontrolleri -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="MAC MEDYA VE SES KONTROLÜ"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/btnMediaPrev"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/btn_primary"
-                    android:text="⏮ Önceki"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-
-                <Button
-                    android:id="@+id/btnMediaPlayPause"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="6dp"
-                    android:background="@drawable/btn_primary"
-                    android:text="⏯ Oynat"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-
-                <Button
-                    android:id="@+id/btnMediaNext"
-                    android:layout_width="0dp"
-                    android:layout_height="44dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary"
-                    android:text="⏭ Sonraki"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal">
-
-                <Button
-                    android:id="@+id/btnVolDown"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/btn_primary"
-                    android:text="🔉 Ses -"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-
-                <Button
-                    android:id="@+id/btnVolUp"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary"
-                    android:text="🔊 Ses +"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
-            </LinearLayout>
-
-            <!-- Media Scrubber / Slider -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:layout_marginBottom="4dp"
-                android:background="@drawable/card_bg"
-                android:padding="14dp"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tvMediaTitle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="6dp"
-                    android:text="🎵 Mac Medyası Bekleniyor..."
-                    android:textColor="@color/accent_blue"
-                    android:textSize="14sp"
-                    android:textStyle="bold"
-                    android:singleLine="true"
-                    android:ellipsize="marquee"
-                    android:marqueeRepeatLimit="marquee_forever"
-                    android:scrollHorizontally="true" />
-
+                <!-- Section Header -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp"
+                    android:layout_marginTop="4dp">
 
                     <TextView
-                        android:id="@+id/tvMediaTime"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="00:00 / 00:00"
-                        android:textColor="@color/text_primary"
-                        android:textSize="12sp"
-                        android:textStyle="bold" />
+                        android:text="BİLGİSAYARLARIM (WINDOWS &amp; MAC)"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
 
                     <TextView
-                        android:id="@+id/tvMediaProgressPercent"
+                        android:id="@+id/tvConnectedSummary"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="%0"
+                        android:text="0 Bağlı"
                         android:textColor="@color/accent_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Computers Container -->
+                <LinearLayout
+                    android:id="@+id/llComputersContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:id="@+id/llEmptyComputers"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/card_bg"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:padding="30dp"
+                        android:layout_marginBottom="12dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="💻"
+                            android:textSize="36sp"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Henüz Bağlı Bilgisayar Yok"
+                            android:textColor="@color/text_primary"
+                            android:textSize="15sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Bilgisayarınızda Windows Sync veya Mac Sync çalışırken aynı Wi-Fi ağındaysanız otomatik bağlanır."
+                            android:textAlignment="center"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Multi-Device Mesh Routing Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="GÜVENLİK &amp; ÇOKLU CİHAZ YÖNLENDİRME"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Mesh Clipboard -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="📋 Çapraz Pano İletimi (Mesh)"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Windows'tan kopyalanan metin Mac'e, Mac'teki Windows'a telefonla aktarılır"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/swMeshClipboard"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/card_border"
+                        android:layout_marginVertical="10dp" />
+
+                    <!-- Ring All Devices -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="4dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="📞 Tüm Bilgisayarları Çaldır"
+                                android:textColor="@color/text_primary"
+                                android:textSize="14sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Gelen çağrıda izin verilen tüm bağlı bilgisayarlarda arama penceresi açılır"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.SwitchCompat
+                            android:id="@+id/swRingAllDevices"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true" />
+                    </LinearLayout>
+
+                    <!-- Re-scan Button (Properly Labeled) -->
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnRescan"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="14dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="🔍 Ağdaki Cihazları Yeniden Tara"
+                        android:textColor="@color/white"
                         android:textSize="13sp"
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <SeekBar
-                    android:id="@+id/sbMediaProgress"
+                <!-- Manual Direct Connect Card -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:max="100"
-                    android:progress="0"
-                    android:progressTint="@color/accent_blue"
-                    android:thumbTint="@color/accent_blue" />
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp">
 
-                <TextView
-                    android:id="@+id/tvPhoneMediaStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="📱 Telefonda çalan: Yok"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp"
-                    android:singleLine="true"
-                    android:ellipsize="end" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="MANUEL CİHAZ EKLE"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="10dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <EditText
+                            android:id="@+id/etServerIp"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/card_bg"
+                            android:hint="PC / Mac IP (Örn: 192.168.50.100)"
+                            android:textColorHint="@color/text_secondary"
+                            android:textColor="@color/text_primary"
+                            android:paddingHorizontal="14dp"
+                            android:singleLine="true"
+                            android:textSize="13sp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnDirectConnect"
+                            android:layout_width="wrap_content"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/btn_primary"
+                            android:backgroundTint="@null"
+                            android:text="Bağlan"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="16dp"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
 
+            <!-- ============================================== -->
+            <!-- TAB 2: MEDIA CONTROLLER & SEEK SCRUBBER -->
+            <!-- ============================================== -->
             <LinearLayout
+                android:id="@+id/panelMedia"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:orientation="horizontal">
+                android:orientation="vertical"
+                android:visibility="gone">
 
-                <Button
-                    android:id="@+id/btnMediaRewind"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:layout_marginEnd="8dp"
-                    android:background="@drawable/btn_primary"
-                    android:text="⏪ 15sn Geri"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
+                <!-- Now Playing Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="20dp"
+                    android:layout_marginBottom="14dp">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="BİLGİSAYARDA ÇALAN MEDYA"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:letterSpacing="0.08" />
 
-                <Button
-                    android:id="@+id/btnMediaForward"
-                    android:layout_width="0dp"
-                    android:layout_height="40dp"
-                    android:layout_weight="1"
-                    android:background="@drawable/btn_primary"
-                    android:text="⏩ 15sn İleri"
-                    android:textColor="@color/white"
-                    android:textAllCaps="false" />
+                        <TextView
+                            android:id="@+id/tvMediaSourceBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/card_bg"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="HAZIR"
+                            android:textColor="@color/accent_blue"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- Album / Icon Header -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="16dp"
+                        android:layout_marginBottom="16dp">
+
+                        <TextView
+                            android:id="@+id/tvMediaSourceIcon"
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/card_bg"
+                            android:gravity="center"
+                            android:text="🎵"
+                            android:textSize="30sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="14dp"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvMediaTrackTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Çalan Medya Yok"
+                                android:textColor="@color/text_primary"
+                                android:textSize="17sp"
+                                android:textStyle="bold"
+                                android:singleLine="true" />
+
+                            <TextView
+                                android:id="@+id/tvMediaTrackArtist"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Spotify, YouTube veya PC/Mac müziği açın"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="13sp"
+                                android:layout_marginTop="2dp"
+                                android:singleLine="true" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Media Time Scrubber (SeekBar) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="14dp">
+
+                        <SeekBar
+                            android:id="@+id/sbMediaProgress"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:max="100"
+                            android:progress="0"
+                            android:thumbTint="@color/accent_blue"
+                            android:progressTint="@color/accent_blue"
+                            android:paddingVertical="8dp" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:paddingHorizontal="4dp">
+
+                            <TextView
+                                android:id="@+id/tvMediaTimeCur"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="00:00"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvMediaTimeTotal"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="00:00"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Playback Controls Row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:layout_marginBottom="14dp">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaRewind15"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏪15"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaPrev"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏮"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaPlayPause"
+                            android:layout_width="100dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/btn_primary"
+                            android:backgroundTint="@null"
+                            android:text="⏯ Oynat"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaNext"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏭"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaForward15"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏩15"
+                            android:textColor="@color/white"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <!-- System Volume Controls -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaVolDown"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔉 Ses -"
+                            android:textColor="@color/white"
+                            android:textSize="12sp"
+                            android:layout_marginEnd="8dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaVolUp"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔊 Ses +"
+                            android:textColor="@color/white"
+                            android:textSize="12sp"
+                            android:layout_marginEnd="8dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnMediaMute"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔇 Sessiz"
+                            android:textColor="@color/white"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Phone Local Media Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="20dp"
+                    android:layout_marginBottom="14dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="📱 BU TELEFONDA ÇALAN MEDYA"
+                            android:textColor="@color/accent_green"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:letterSpacing="0.08" />
+
+                        <TextView
+                            android:id="@+id/tvPhoneMediaBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/card_bg"
+                            android:paddingHorizontal="8dp"
+                            android:paddingVertical="3dp"
+                            android:text="BEKLEMEDE"
+                            android:textColor="@color/accent_green"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- Phone Media Icon & Info -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="16dp"
+                        android:layout_marginBottom="16dp">
+
+                        <TextView
+                            android:id="@+id/tvPhoneMediaIcon"
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:background="@drawable/card_bg"
+                            android:gravity="center"
+                            android:text="🎧"
+                            android:textSize="30sp" />
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:layout_marginStart="14dp"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/tvPhoneMediaTitle"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Telefonda Medya Yok"
+                                android:textColor="@color/text_primary"
+                                android:textSize="17sp"
+                                android:textStyle="bold"
+                                android:singleLine="true" />
+
+                            <TextView
+                                android:id="@+id/tvPhoneMediaArtist"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Telefonda müzik veya podcast açın"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="13sp"
+                                android:layout_marginTop="2dp"
+                                android:singleLine="true" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Phone Media Scrubber (SeekBar) -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginBottom="14dp">
+
+                        <SeekBar
+                            android:id="@+id/sbPhoneMediaProgress"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:max="100"
+                            android:progress="0"
+                            android:thumbTint="@color/accent_green"
+                            android:progressTint="@color/accent_green"
+                            android:paddingVertical="8dp" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:paddingHorizontal="4dp">
+
+                            <TextView
+                                android:id="@+id/tvPhoneMediaTimeCur"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="00:00"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvPhoneMediaTimeTotal"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="00:00"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+
+                    <!-- Phone Playback Controls Row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center"
+                        android:layout_marginBottom="12dp">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaRewind15"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏪15"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaPrev"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏮"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaPlayPause"
+                            android:layout_width="100dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/btn_primary"
+                            android:backgroundTint="@null"
+                            android:text="⏯ Oynat"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaNext"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏭"
+                            android:textColor="@color/white"
+                            android:textSize="16sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaForward15"
+                            android:layout_width="54dp"
+                            android:layout_height="44dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⏩15"
+                            android:textColor="@color/white"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <!-- Phone Volume Controls Row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaVolDown"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔉 Telefon Ses -"
+                            android:textColor="@color/white"
+                            android:textSize="12sp"
+                            android:layout_marginEnd="8dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPhoneMediaVolUp"
+                            android:layout_width="0dp"
+                            android:layout_height="38dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔊 Telefon Ses +"
+                            android:textColor="@color/white"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Phone Remote Finder Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="TELEFONUMU ÇALDIR &amp; SUSTUR"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="12dp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnFindPhoneTest"
+                            android:layout_width="0dp"
+                            android:layout_height="42dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="🔔 Telefonumu Çaldır (Test)"
+                            android:textColor="@color/white"
+                            android:textSize="12sp"
+                            android:layout_marginEnd="8dp" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnStopRingPhone"
+                            android:layout_width="0dp"
+                            android:layout_height="42dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_danger"
+                            android:backgroundTint="@null"
+                            android:text="🔕 Sustur"
+                            android:textColor="@color/white"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
+
+            <!-- ============================================== -->
+            <!-- TAB 3: CLIPBOARD & SMS PANEL -->
+            <!-- ============================================== -->
+            <LinearLayout
+                android:id="@+id/panelClipboard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- Clipboard Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SON SENKRONİZE EDİLEN PANO METNİ"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <TextView
+                        android:id="@+id/tvLastClipboard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/card_bg"
+                        android:padding="14dp"
+                        android:text="Pano boş..."
+                        android:textColor="@color/text_primary"
+                        android:textSize="13sp" />
+
+                    <EditText
+                        android:id="@+id/etCustomClipInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="12dp"
+                        android:background="@drawable/card_bg"
+                        android:hint="Bilgisayara özel metin yazıp gönderin..."
+                        android:textColorHint="@color/text_secondary"
+                        android:textColor="@color/text_primary"
+                        android:paddingHorizontal="14dp"
+                        android:singleLine="true"
+                        android:textSize="13sp" />
+
+                    <!-- Send Button (Properly Labeled) -->
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnSendTestClipboard"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_primary"
+                        android:backgroundTint="@null"
+                        android:text="📋 Bilgisayara Pano Gönder"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- SMS Sync Status Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SMS MESAJ SENKRONİZASYONU"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:id="@+id/tvSmsSyncStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SMS eşitlemesi aktif. Bilgisayarınızdan mesajları okuyup doğrudan yanıtlayabilirsiniz."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginBottom="12dp" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnTriggerSmsSync"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="💬 Mesajları Bilgisayarla Eşitle"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============================================== -->
+            <!-- TAB 4: PERMISSIONS & SETTINGS PANEL -->
+            <!-- ============================================== -->
+            <LinearLayout
+                android:id="@+id/panelSettings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- System Permissions Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="SİSTEM İZİNLERİ"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Notification Access -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="6dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="🔔 Bildirim Erişimi"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvNotifPermissionStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Durum kontrol ediliyor..."
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnGrantNotification"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="İzin Ayarı"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/card_border"
+                        android:layout_marginVertical="8dp" />
+
+                    <!-- Phone Call Access -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="6dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="📞 Arama &amp; Telefon İzinleri"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvPhonePermissionStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Durum kontrol ediliyor..."
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnGrantPhone"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="İzin Ver"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/card_border"
+                        android:layout_marginVertical="8dp" />
+
+                    <!-- SMS Access -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="6dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="💬 SMS Okuma &amp; Gönderme"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvSmsPermissionStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Durum kontrol ediliyor..."
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnGrantSms"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="İzin Ver"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- About Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="EKOSİSTEM BİLGİSİ"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="8dp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="WebSocket: 42424 | UDP Keşif: 42425"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Uçtan uca şifreli PIN doğrulama ve evrensel mesh ağ mimarisi."
+                        android:textColor="@color/text_muted"
+                        android:textSize="11sp"
+                        android:layout_marginTop="4dp" />
+                </LinearLayout>
+            </LinearLayout>
+
         </LinearLayout>
-
-        <!-- Card: Ses Aktarımı (Mac <-> Telefon) -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SES AKTARIMI (MAC ⇄ TELEFON)"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="Wi-Fi veya Bluetooth üzerinden cihazlar arası canlı ses aktarımı"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btnStreamMacAudio"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/btn_primary"
-                android:text="🎧 Mac Sesini Telefonda Dinle (Wi-Fi)"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-
-            <Button
-                android:id="@+id/btnBluetoothAudio"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/btn_primary"
-                android:text="📶 Bluetooth Ses Eşlemesi (Gecikmesiz)"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-        </LinearLayout>
-
-        <!-- Card: Test ve Hızlı Eylemler -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:layout_marginBottom="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TEST VE HIZLI EYLEMLER"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <Button
-                android:id="@+id/btnSendTestNotification"
-                android:layout_width="match_parent"
-                android:layout_height="42dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/btn_primary"
-                android:text="🔔 Mac'e Test Bildirimi Gönder"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-
-            <Button
-                android:id="@+id/btnSimulateCall"
-                android:layout_width="match_parent"
-                android:layout_height="42dp"
-                android:layout_marginTop="8dp"
-                android:background="@drawable/btn_primary"
-                android:text="📞 Gelen Arama Uyarısı Gönder"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-        </LinearLayout>
-
-        <!-- Card: Pano Senkronizasyonu -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="@drawable/card_bg"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ORTAK PANO"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:letterSpacing="0.1" />
-
-            <TextView
-                android:id="@+id/tvLastClipboard"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Henüz senkronize edilen pano yok."
-                android:textColor="@color/text_primary"
-                android:textSize="13sp" />
-
-            <Button
-                android:id="@+id/btnSendTestClipboard"
-                android:layout_width="match_parent"
-                android:layout_height="42dp"
-                android:layout_marginTop="12dp"
-                android:background="@drawable/btn_primary"
-                android:text="Panodaki Metni Mac'e Gönder"
-                android:textColor="@color/white"
-                android:textAllCaps="false" />
-        </LinearLayout>
-
-    </LinearLayout>
-</ScrollView>
+    </ScrollView>
+</LinearLayout>

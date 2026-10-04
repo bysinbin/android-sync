@@ -3,5 +3,7 @@
         <item name="colorPrimary">@color/accent_blue</item>
         <item name="android:statusBarColor">@color/bg_dark</item>
         <item name="android:windowBackground">@color/bg_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:fitsSystemWindows">true</item>
     </style>
 </resources>

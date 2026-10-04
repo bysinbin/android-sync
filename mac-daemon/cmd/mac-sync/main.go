@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/user/android-mac-sync/mac-daemon/internal/discovery"
-	"github.com/user/android-mac-sync/mac-daemon/internal/macos"
-	"github.com/user/android-mac-sync/mac-daemon/internal/protocol"
-	"github.com/user/android-mac-sync/mac-daemon/internal/server"
+	"mac-sync/internal/discovery"
+	"mac-sync/internal/macos"
+	"mac-sync/internal/protocol"
+	"mac-sync/internal/server"
 )
 
 const (
@@ -20,18 +22,23 @@ const (
 )
 
 func main() {
+	// Port kontrolü: Eğer zaten arka planda çalışıyorsa hata fırlatmak yerine tarayıcıyı aç
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", defaultWSPort), 300*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		fmt.Println("==================================================")
+		fmt.Printf("ℹ️  Android-Mac Sync zaten çalışıyor (Port %d aktif)!\n", defaultWSPort)
+		fmt.Printf("🌐 Kontrol Paneli açılıyor: http://localhost:%d\n", defaultWSPort)
+		fmt.Println("==================================================")
+		_ = exec.Command("open", fmt.Sprintf("http://localhost:%d", defaultWSPort)).Start()
+		return
+	}
+
 	hostname, err := os.Hostname()
 	if err != nil {
 		hostname = "Mac"
 	}
-	serverName := fmt.Sprintf("%s (Sync)", hostname)
-
-	fmt.Println("==================================================")
-	fmt.Printf("🍏 Android-Mac Sync Daemon Başlatılıyor...\n")
-	fmt.Printf("   Sunucu Adı    : %s\n", serverName)
-	fmt.Printf("   WebSocket Port: %d\n", defaultWSPort)
-	fmt.Printf("   Keşif Portu   : %d (UDP)\n", discovery.DiscoveryPort)
-	fmt.Println("==================================================")
+	serverName := fmt.Sprintf("%s (Mac Sync)", hostname)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -40,7 +47,17 @@ func main() {
 	clipManager := macos.NewClipboardManager()
 
 	// 2. WebSocket Sunucusu
-	syncServer := server.NewSyncServer(defaultWSPort, clipManager)
+	syncServer := server.NewSyncServer(defaultWSPort, serverName, clipManager)
+
+	fmt.Println("==================================================")
+	fmt.Printf("🍏 Android-Mac Sync Daemon Başlatılıyor...\n")
+	fmt.Printf("   Sunucu Adı    : %s\n", serverName)
+	fmt.Printf("   Eşleştirme PIN: %s\n", syncServer.GetPairingPIN())
+	fmt.Printf("   WebSocket Port: %d\n", defaultWSPort)
+	fmt.Printf("   Keşif Portu   : %d (UDP)\n", discovery.DiscoveryPort)
+	fmt.Printf("   Kontrol Paneli: http://localhost:%d\n", defaultWSPort)
+	fmt.Println("==================================================")
+
 
 	// Mac panosu değiştiğinde Android'e ilet
 	go clipManager.StartWatcher(ctx, func(text string) {
@@ -68,6 +85,10 @@ func main() {
 	// 4b. Mac Medya Takipçisini Başlat (MediaRemote + AppleScript)
 	macos.StartMediaTracker(ctx, syncServer.UpdateMacMedia)
 	log.Printf("[Medya] Mac sistem medya takipçisi başlatıldı.")
+
+	// 4c. Mac Bildirim Dinleyicisini Başlat (Gelen bildirimleri telefona ilet)
+	macos.StartMacNotificationListener(ctx, syncServer.BroadcastMacNotification)
+	log.Printf("[Bildirim] Mac gelen bildirim dinleyicisi başlatıldı.")
 
 	// 5. Kapatma Sinyallerini Yakala
 	sigChan := make(chan os.Signal, 1)

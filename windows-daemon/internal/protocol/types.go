@@ -49,6 +49,7 @@ type PairConfirmPayload struct {
 	ClientID   string `json:"client_id,omitempty"`
 }
 
+
 // Message is the generic container for all sync events over WebSocket.
 type Message struct {
 	Event   string          `json:"event"`
@@ -80,7 +81,7 @@ type CallStatePayload struct {
 	CallerName  string `json:"caller_name"`
 }
 
-// CallActionPayload represents an answer/reject/dial action from PC/Mac to phone.
+// CallActionPayload represents an answer/reject/dial action from PC to phone.
 type CallActionPayload struct {
 	Action string  `json:"action"` // ANSWER, REJECT, HANGUP, DIAL, SET_SPEAKER, SET_MUTE
 	Number *string `json:"number,omitempty"`
@@ -89,7 +90,7 @@ type CallActionPayload struct {
 
 // MediaInfoPayload describes what music/media is currently playing.
 type MediaInfoPayload struct {
-	Source     string  `json:"source,omitempty"` // "mac", "windows", or "phone"
+	Source     string  `json:"source,omitempty"` // "windows", "mac", or "phone"
 	Title      string  `json:"title"`
 	Artist     string  `json:"artist"`
 	Album      string  `json:"album"`
@@ -99,14 +100,14 @@ type MediaInfoPayload struct {
 	Percent    float64 `json:"percent,omitempty"`
 }
 
-// MediaCommandPayload represents a playback control command.
+// MediaCommandPayload represents a playback control command sent from phone to PC.
 type MediaCommandPayload struct {
 	Action     string  `json:"action"` // PLAY, PAUSE, PLAY_PAUSE, NEXT, PREVIOUS, VOLUME_UP, VOLUME_DOWN, SEEK_PERCENT
 	PositionMs int64   `json:"position_ms,omitempty"`
 	Percent    float64 `json:"percent,omitempty"`
 }
 
-// PhoneCommandPayload represents a command sent from Mac to control the phone.
+// PhoneCommandPayload represents a command sent from PC to control the phone.
 type PhoneCommandPayload struct {
 	Action     string  `json:"action"` // PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, VOLUME_UP, VOLUME_DOWN, MUTE, RING, STOP_RING, SEEK_PERCENT
 	PositionMs int64   `json:"position_ms,omitempty"`
@@ -136,7 +137,7 @@ type SmsSyncPayload struct {
 	Messages []SmsMessage `json:"messages"`
 }
 
-// SmsSendPayload represents a request to send an SMS from Mac.
+// SmsSendPayload represents a request to send an SMS from PC.
 type SmsSendPayload struct {
 	Recipient string `json:"recipient"`
 	Body      string `json:"body"`
@@ -162,4 +163,3 @@ func NewMessage(event string, payload any) (*Message, error) {
 		Payload: bytes,
 	}, nil
 }
-

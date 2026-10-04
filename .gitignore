@@ -14,9 +14,12 @@ MacSync.app/
 MacSync.apk
 mediactl
 mac-app/MacSync
-mac-daemon/mac-sync
+mac-daemon/mac-sync*
 mac-daemon/mediactl
 mac-daemon/mac-media-info
+windows-sync.exe
+windows-daemon/windows-sync.exe
+*.exe
 
 # Android / Gradle build files
 .gradle/

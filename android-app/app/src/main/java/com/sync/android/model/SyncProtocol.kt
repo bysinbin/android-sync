@@ -6,14 +6,46 @@ import com.google.gson.JsonElement
 object ProtocolEvents {
     const val DEVICE_INFO = "device_info"
     const val NOTIFICATION = "notification"
+    const val PC_NOTIFICATION = "pc_notification"
     const val CALL_STATE = "call_state"
+    const val CALL_ACTION = "call_action"
     const val MEDIA_INFO = "media_info"
     const val MEDIA_COMMAND = "media_command"
     const val PHONE_COMMAND = "phone_command"
     const val CLIPBOARD = "clipboard"
+    const val SMS_SYNC_REQUEST = "sms_sync_request"
+    const val SMS_SYNC_RESPONSE = "sms_sync_response"
+    const val SMS_SEND = "sms_send"
+    const val SMS_SENT_STATUS = "sms_sent_status"
+    const val SMS_NEW_MESSAGE = "sms_new_message"
+    const val AUTH_REQUEST = "auth_request"
+    const val AUTH_RESPONSE = "auth_response"
+    const val PAIR_CONFIRM = "pair_confirm"
+    const val UNPAIR = "unpair"
     const val PING = "ping"
     const val PONG = "pong"
 }
+
+data class AuthRequestPayload(
+    val client_id: String,
+    val client_name: String,
+    val os: String,
+    val auth_token: String? = null,
+    val pairing_pin: String
+)
+
+data class AuthResponsePayload(
+    val status: String, // "AUTHORIZED", "PAIRING_REQUIRED", "REJECTED"
+    val client_name: String? = null
+)
+
+data class PairConfirmPayload(
+    val approved: Boolean,
+    val auth_token: String? = null,
+    val device_name: String? = null,
+    val client_id: String? = null
+)
+
 
 data class SyncMessage(
     val event: String,
@@ -42,8 +74,14 @@ data class CallStatePayload(
     val caller_name: String
 )
 
+data class CallActionPayload(
+    val action: String, // ANSWER, REJECT, HANGUP, DIAL, SET_SPEAKER, SET_MUTE
+    val number: String? = null,
+    val value: Boolean? = null
+)
+
 data class MediaInfoPayload(
-    val source: String = "", // "mac" or "phone"
+    val source: String = "", // "mac", "windows", or "phone"
     val title: String = "",
     val artist: String = "",
     val album: String = "",
@@ -66,6 +104,34 @@ data class PhoneCommandPayload(
 data class ClipboardPayload(
     val text: String,
     val timestamp: Long
+)
+
+data class SmsMessage(
+    val id: String,
+    val thread_id: Long,
+    val address: String,
+    val contact_name: String?,
+    val body: String,
+    val timestamp: Long,
+    val is_incoming: Boolean,
+    val read: Boolean
+)
+
+data class SmsSyncPayload(
+    val messages: List<SmsMessage>
+)
+
+data class SmsSendPayload(
+    val recipient: String,
+    val body: String
+)
+
+data class SmsSentStatusPayload(
+    val success: Boolean,
+    val recipient: String,
+    val body: String,
+    val error: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class DiscoveryPacket(

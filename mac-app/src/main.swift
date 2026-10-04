@@ -374,6 +374,20 @@ class LocalCommandServer {
                                         TouchBarController.shared.dismissCallTouchBar()
                                     }
                                 }
+                            } else if firstLine.contains("/sms") {
+                                var sender = "Bilinmeyen"
+                                var body = ""
+                                if let senderRange = firstLine.range(of: "sender=") {
+                                    let q = String(firstLine[senderRange.upperBound...])
+                                    sender = q.components(separatedBy: " ").first?.components(separatedBy: "&").first?.removingPercentEncoding ?? "Bilinmeyen"
+                                }
+                                if let bodyRange = firstLine.range(of: "body=") {
+                                    let q = String(firstLine[bodyRange.upperBound...])
+                                    body = q.components(separatedBy: " ").first?.components(separatedBy: "&").first?.removingPercentEncoding ?? ""
+                                }
+                                DispatchQueue.main.async {
+                                    AppDelegate.shared?.showSmsNotification(sender: sender, body: body)
+                                }
                             } else if let actionRange = firstLine.range(of: "action=") {
                                 let queryPart = String(firstLine[actionRange.upperBound...])
                                 let rawAction = queryPart.components(separatedBy: " ").first?.components(separatedBy: "&").first ?? ""
@@ -492,6 +506,8 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
         tb.delegate = self
         tb.defaultItemIdentifiers = [
             NSTouchBarItem.Identifier("tb.call.caller"),
+            NSTouchBarItem.Identifier("tb.call.answer"),
+            NSTouchBarItem.Identifier("tb.call.reject"),
             NSTouchBarItem.Identifier("tb.call.mute"),
             NSTouchBarItem.Identifier("tb.close")
         ]
@@ -608,6 +624,18 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
             tf.textColor = NSColor.systemRed
             item.view = tf
             return item
+        case "tb.call.answer":
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let btn = NSButton(title: "📞 Yanıtla", target: self, action: #selector(onCallAnswer))
+            btn.bezelColor = NSColor.systemGreen
+            item.view = btn
+            return item
+        case "tb.call.reject":
+            let item = NSCustomTouchBarItem(identifier: identifier)
+            let btn = NSButton(title: "✕ Reddet", target: self, action: #selector(onCallReject))
+            btn.bezelColor = NSColor.systemRed
+            item.view = btn
+            return item
         case "tb.call.mute":
             let item = NSCustomTouchBarItem(identifier: identifier)
             let btn = NSButton(title: "🔕 Sessize Al", target: self, action: #selector(onPhoneMute))
@@ -690,6 +718,24 @@ class TouchBarController: NSObject, NSTouchBarDelegate {
     @objc func onPhoneRewind() { (NSApp.delegate as? AppDelegate)?.sendPhoneCommand("REWIND_15") }
     @objc func onPhoneMute() { (NSApp.delegate as? AppDelegate)?.sendPhoneCommand("MUTE") }
     @objc func onPhoneRing() { (NSApp.delegate as? AppDelegate)?.sendPhoneCommand("RING") }
+
+    @objc func onCallAnswer() {
+        dismissCallTouchBar()
+        if let url = URL(string: "http://127.0.0.1:42424/call/action?action=ANSWER") {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 1.0
+            URLSession.shared.dataTask(with: req).resume()
+        }
+    }
+
+    @objc func onCallReject() {
+        dismissCallTouchBar()
+        if let url = URL(string: "http://127.0.0.1:42424/call/action?action=REJECT") {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 1.0
+            URLSession.shared.dataTask(with: req).resume()
+        }
+    }
 }
 
 // MARK: - App Delegate & Menu Bar Manager
@@ -738,6 +784,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, UNUserNotifi
             content.body = caller.isEmpty ? "Bilinmeyen Numara" : caller
             content.sound = UNNotificationSound.default
             let req = UNNotificationRequest(identifier: "incoming_call_\(Date().timeIntervalSince1970)", content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+        }
+    }
+
+    func showSmsNotification(sender: String, body: String) {
+        if #available(macOS 10.14, *) {
+            let content = UNMutableNotificationContent()
+            content.title = "💬 Yeni Mesaj: \(sender)"
+            content.body = body
+            content.sound = UNNotificationSound.default
+            let req = UNNotificationRequest(identifier: "incoming_sms_\(Date().timeIntervalSince1970)", content: content, trigger: nil)
             UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
         }
     }

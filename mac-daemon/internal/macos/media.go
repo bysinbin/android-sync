@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/user/android-mac-sync/mac-daemon/internal/protocol"
+	"mac-sync/internal/protocol"
 )
 
 // sendGlobalMediaKey sends an official macOS MediaRemote command using mediactl.
@@ -134,13 +135,68 @@ func ExecuteMediaAction(action string) error {
 		_ = exec.Command("osascript", "-e", script).Run()
 		return sendGlobalMediaKey("VOLUME_DOWN")
 
-	case "PLAY_PAUSE", "PLAY", "PAUSE", "NEXT", "PREVIOUS", "SEEK_FORWARD", "FORWARD", "FORWARD_15", "SEEK_BACKWARD", "REWIND", "REWIND_15":
+	case "PLAY_PAUSE", "PLAY", "PAUSE", "NEXT", "PREVIOUS":
 		// Direct system-wide media key dispatch (Controls Spotify, YouTube in browser, Apple Music, VLC, etc.)
 		return sendGlobalMediaKey(action)
+
+	case "SEEK_FORWARD", "FORWARD", "FORWARD_15":
+		return ExecuteMediaSeekRelative(15)
+
+	case "SEEK_BACKWARD", "REWIND", "REWIND_15":
+		return ExecuteMediaSeekRelative(-15)
 
 	default:
 		return fmt.Errorf("unknown media action: %s", action)
 	}
+}
+
+// ExecuteMediaSeekRelative seeks the current media on macOS by +/- seconds.
+func ExecuteMediaSeekRelative(deltaSec int) error {
+	client := http.Client{Timeout: 500 * time.Millisecond}
+	actionName := "SEEK_FORWARD"
+	if deltaSec < 0 {
+		actionName = "SEEK_BACKWARD"
+	}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:42426/media?action=%s&seconds=%d", actionName, int(math.Abs(float64(deltaSec)))))
+	if err == nil {
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			return nil
+		}
+	}
+
+	sec := deltaSec
+	script := fmt.Sprintf(`
+		try
+			tell application "Spotify" to if player state is playing then set player position to ((player position) + %d)
+		end try
+		try
+			tell application "Music" to if player state is playing then set player position to ((player position) + %d)
+		end try
+		try
+			tell application "Google Chrome"
+				repeat with w in windows
+					repeat with t in tabs of w
+						try
+							execute t javascript "var v=document.querySelector('video')||document.querySelector('audio'); if(v) v.currentTime += %d;"
+						end try
+					end repeat
+				end repeat
+			end tell
+		end try
+		try
+			tell application "Safari"
+				repeat with w in windows
+					repeat with t in tabs of w
+						try
+							do JavaScript "var v=document.querySelector('video')||document.querySelector('audio'); if(v) v.currentTime += %d;" in t
+						end try
+					end repeat
+				end repeat
+			end tell
+		end try
+	`, sec, sec, sec, sec)
+	return exec.Command("osascript", "-e", script).Run()
 }
 
 // ExecuteMediaSeekPercent seeks the current media on macOS to a specific percentage (0.0 to 100.0).
