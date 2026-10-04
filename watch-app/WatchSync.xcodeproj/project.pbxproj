@@ -335,8 +335,7 @@
 				VALID_ARCHS = "arm64 arm64_32";
 				WATCHOS_DEPLOYMENT_TARGET = 9.0;
 				WK_APPLICATION = YES;
-				WK_RUNS_INDEPENDENTLY_OF_COMPANION_APP = YES;
-				WK_WATCH_ONLY = YES;
+								WK_WATCH_ONLY = YES;
 			};
 			name = Debug;
 		};
@@ -365,8 +364,7 @@
 				VALID_ARCHS = "arm64 arm64_32";
 				WATCHOS_DEPLOYMENT_TARGET = 9.0;
 				WK_APPLICATION = YES;
-				WK_RUNS_INDEPENDENTLY_OF_COMPANION_APP = YES;
-				WK_WATCH_ONLY = YES;
+								WK_WATCH_ONLY = YES;
 			};
 			name = Release;
 		};
