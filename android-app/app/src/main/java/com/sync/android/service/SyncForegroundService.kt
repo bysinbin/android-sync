@@ -25,7 +25,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 import androidx.core.content.FileProvider
-import com.sync.android.model.ClipboardPayload
+import com.sync.android.model.*
 import java.io.ByteArrayOutputStream
 import java.io.File
 
@@ -485,6 +485,10 @@ class SyncForegroundService : Service() {
         Log.d(TAG, "Çağrı durumu değişti: $stateStr")
         // Tüm bağlı bilgisayarlara arama durumunu gönder (hepsinde müzik durur ve bildirim çıkar)
         webSocketClient?.sendCallState(stateStr, number)
+    }
+
+    fun sendTouchpadEvent(payload: TouchpadEventPayload, targetHostKey: String? = null) {
+        webSocketClient?.sendTouchpadEvent(payload, targetHostKey)
     }
 
     fun connectDirectly(ip: String, port: Int = 42424) {

@@ -543,6 +543,15 @@ class SyncWebSocketClient(
         broadcastMessage(info.toSyncMessage(ProtocolEvents.MEDIA_INFO))
     }
 
+    fun sendTouchpadEvent(payload: TouchpadEventPayload, targetHostKey: String? = null) {
+        val json = payload.toSyncMessage(ProtocolEvents.TOUCHPAD_EVENT)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
     fun sendClipboard(payload: ClipboardPayload, excludeHostKey: String? = null) {
         val manager = PairedDeviceManager.getInstance(context)
         val json = payload.toSyncMessage(ProtocolEvents.CLIPBOARD)

@@ -1,0 +1,112 @@
+package windows
+
+import (
+	"log"
+	"strings"
+	"time"
+
+	"windows-sync/internal/protocol"
+)
+
+var (
+	procMouseEvent = user32.NewProc("mouse_event")
+)
+
+const (
+	MOUSEEVENTF_MOVE       = 0x0001
+	MOUSEEVENTF_LEFTDOWN   = 0x0002
+	MOUSEEVENTF_LEFTUP     = 0x0004
+	MOUSEEVENTF_RIGHTDOWN  = 0x0008
+	MOUSEEVENTF_RIGHTUP    = 0x0010
+	MOUSEEVENTF_MIDDLEDOWN = 0x0020
+	MOUSEEVENTF_MIDDLEUP   = 0x0040
+	MOUSEEVENTF_WHEEL      = 0x0800
+
+	VK_BACK   = 0x08
+	VK_TAB    = 0x09
+	VK_RETURN = 0x0D
+	VK_ESCAPE = 0x1B
+	VK_SPACE  = 0x20
+	VK_PRIOR  = 0x21 // Page Up
+	VK_NEXT   = 0x22 // Page Down
+	VK_END    = 0x23
+	VK_HOME   = 0x24
+	VK_LEFT   = 0x25
+	VK_UP     = 0x26
+	VK_RIGHT  = 0x27
+	VK_DOWN   = 0x28
+	VK_F5     = 0x74
+	VK_F11    = 0x7A
+)
+
+// HandleTouchpadEvent processes mouse movement, clicks, scrolling, or presentation hotkeys.
+func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
+	switch strings.ToLower(p.Type) {
+	case "move":
+		if p.DX != 0 || p.DY != 0 {
+			// dx and dy are relative pixel movements
+			procMouseEvent.Call(MOUSEEVENTF_MOVE, uintptr(int32(p.DX)), uintptr(int32(p.DY)), 0, 0)
+		}
+	case "click":
+		switch strings.ToLower(p.Button) {
+		case "left", "":
+			procMouseEvent.Call(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+			time.Sleep(10 * time.Millisecond)
+			procMouseEvent.Call(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+		case "right":
+			procMouseEvent.Call(MOUSEEVENTF_RIGHTDOWN, 0, 0, 0, 0)
+			time.Sleep(10 * time.Millisecond)
+			procMouseEvent.Call(MOUSEEVENTF_RIGHTUP, 0, 0, 0, 0)
+		case "middle":
+			procMouseEvent.Call(MOUSEEVENTF_MIDDLEDOWN, 0, 0, 0, 0)
+			time.Sleep(10 * time.Millisecond)
+			procMouseEvent.Call(MOUSEEVENTF_MIDDLEUP, 0, 0, 0, 0)
+		}
+	case "scroll":
+		// Windows mouse wheel delta: standard click is 120 (positive = up, negative = down)
+		amount := p.ScrollY
+		if amount == 0 {
+			amount = int(p.DY) * 20
+		}
+		if amount != 0 {
+			procMouseEvent.Call(MOUSEEVENTF_WHEEL, 0, 0, uintptr(int32(amount)), 0)
+		}
+	case "key":
+		k := strings.ToUpper(strings.TrimSpace(p.Key))
+		var vk byte
+		switch k {
+		case "LEFT":
+			vk = VK_LEFT
+		case "RIGHT":
+			vk = VK_RIGHT
+		case "UP":
+			vk = VK_UP
+		case "DOWN":
+			vk = VK_DOWN
+		case "F5":
+			vk = VK_F5
+		case "ESC", "ESCAPE":
+			vk = VK_ESCAPE
+		case "ENTER", "RETURN":
+			vk = VK_RETURN
+		case "SPACE":
+			vk = VK_SPACE
+		case "PAGE_UP", "PGUP":
+			vk = VK_PRIOR
+		case "PAGE_DOWN", "PGDN":
+			vk = VK_NEXT
+		case "VOL_UP":
+			vk = VK_VOLUME_UP
+		case "VOL_DOWN":
+			vk = VK_VOLUME_DOWN
+		case "MUTE":
+			vk = VK_VOLUME_MUTE
+		case "PLAY_PAUSE":
+			vk = VK_MEDIA_PLAY_PAUSE
+		default:
+			log.Printf("[Touchpad] Bilinmeyen tuş: %s", p.Key)
+			return
+		}
+		sendVirtualKey(vk)
+	}
+}

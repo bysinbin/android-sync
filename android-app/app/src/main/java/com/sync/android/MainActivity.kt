@@ -32,7 +32,12 @@ import com.sync.android.service.SyncForegroundService
 
 import android.widget.SeekBar
 import android.net.Uri
+import android.annotation.SuppressLint
+import android.view.MotionEvent
+import android.view.HapticFeedbackConstants
+import android.widget.FrameLayout
 import com.sync.android.model.MediaInfoPayload
+import com.sync.android.model.TouchpadEventPayload
 import com.sync.android.service.PhoneController
 import com.sync.android.service.SmsSyncManager
 import com.sync.android.service.FileManager
@@ -46,6 +51,7 @@ class MainActivity : AppCompatActivity() {
 
     // Tabs
     private lateinit var tabBtnComputers: TextView
+    private lateinit var tabBtnTouchpad: TextView
     private lateinit var tabBtnMedia: TextView
     private lateinit var tabBtnClipboard: TextView
     private lateinit var tabBtnFiles: TextView
@@ -53,10 +59,25 @@ class MainActivity : AppCompatActivity() {
 
     // Tab Panels
     private lateinit var panelComputers: LinearLayout
+    private lateinit var panelTouchpad: LinearLayout
     private lateinit var panelMedia: LinearLayout
     private lateinit var panelClipboard: LinearLayout
     private lateinit var panelFiles: LinearLayout
     private lateinit var panelSettings: LinearLayout
+
+    // Touchpad & Remote Views
+    private lateinit var btnTouchpadSensitivity: Button
+    private lateinit var vTouchpadSurface: FrameLayout
+    private lateinit var btnMouseLeft: Button
+    private lateinit var btnMouseMiddle: Button
+    private lateinit var btnMouseRight: Button
+    private lateinit var btnRemotePrevSlide: Button
+    private lateinit var btnRemoteStartF5: Button
+    private lateinit var btnRemoteNextSlide: Button
+    private lateinit var btnRemoteEsc: Button
+    private lateinit var btnRemoteSpace: Button
+    private lateinit var btnRemoteEnter: Button
+    private var touchpadSensitivity: Float = 1.5f
 
     // File Sharing & URL Views
     private lateinit var btnSelectAndSendFile: Button
@@ -325,6 +346,7 @@ class MainActivity : AppCompatActivity() {
 
         // Tabs
         tabBtnComputers = findViewById(R.id.tabBtnComputers)
+        tabBtnTouchpad = findViewById(R.id.tabBtnTouchpad)
         tabBtnMedia = findViewById(R.id.tabBtnMedia)
         tabBtnClipboard = findViewById(R.id.tabBtnClipboard)
         tabBtnFiles = findViewById(R.id.tabBtnFiles)
@@ -332,10 +354,24 @@ class MainActivity : AppCompatActivity() {
 
         // Panels
         panelComputers = findViewById(R.id.panelComputers)
+        panelTouchpad = findViewById(R.id.panelTouchpad)
         panelMedia = findViewById(R.id.panelMedia)
         panelClipboard = findViewById(R.id.panelClipboard)
         panelFiles = findViewById(R.id.panelFiles)
         panelSettings = findViewById(R.id.panelSettings)
+
+        // Touchpad views
+        btnTouchpadSensitivity = findViewById(R.id.btnTouchpadSensitivity)
+        vTouchpadSurface = findViewById(R.id.vTouchpadSurface)
+        btnMouseLeft = findViewById(R.id.btnMouseLeft)
+        btnMouseMiddle = findViewById(R.id.btnMouseMiddle)
+        btnMouseRight = findViewById(R.id.btnMouseRight)
+        btnRemotePrevSlide = findViewById(R.id.btnRemotePrevSlide)
+        btnRemoteStartF5 = findViewById(R.id.btnRemoteStartF5)
+        btnRemoteNextSlide = findViewById(R.id.btnRemoteNextSlide)
+        btnRemoteEsc = findViewById(R.id.btnRemoteEsc)
+        btnRemoteSpace = findViewById(R.id.btnRemoteSpace)
+        btnRemoteEnter = findViewById(R.id.btnRemoteEnter)
 
         // Files views
         btnSelectAndSendFile = findViewById(R.id.btnSelectAndSendFile)
@@ -419,10 +455,14 @@ class MainActivity : AppCompatActivity() {
 
         // Tab Navigation
         tabBtnComputers.setOnClickListener { switchTab(0) }
-        tabBtnMedia.setOnClickListener { switchTab(1) }
-        tabBtnClipboard.setOnClickListener { switchTab(2) }
-        tabBtnFiles.setOnClickListener { switchTab(3) }
-        tabBtnSettings.setOnClickListener { switchTab(4) }
+        tabBtnTouchpad.setOnClickListener { switchTab(1) }
+        tabBtnMedia.setOnClickListener { switchTab(2) }
+        tabBtnClipboard.setOnClickListener { switchTab(3) }
+        tabBtnFiles.setOnClickListener { switchTab(4) }
+        tabBtnSettings.setOnClickListener { switchTab(5) }
+
+        // Setup Touchpad
+        setupTouchpadListeners()
 
         // Files Listeners
         btnSelectAndSendFile.setOnClickListener {
@@ -681,8 +721,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchTab(tabIndex: Int) {
-        val tabs = listOf(tabBtnComputers, tabBtnMedia, tabBtnClipboard, tabBtnFiles, tabBtnSettings)
-        val panels = listOf(panelComputers, panelMedia, panelClipboard, panelFiles, panelSettings)
+        val tabs = listOf(tabBtnComputers, tabBtnTouchpad, tabBtnMedia, tabBtnClipboard, tabBtnFiles, tabBtnSettings)
+        val panels = listOf(panelComputers, panelTouchpad, panelMedia, panelClipboard, panelFiles, panelSettings)
 
         for (i in tabs.indices) {
             if (i == tabIndex) {
@@ -695,6 +735,154 @@ class MainActivity : AppCompatActivity() {
                 panels[i].visibility = View.GONE
             }
         }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupTouchpadListeners() {
+        // Sensitivity Button toggle
+        btnTouchpadSensitivity.setOnClickListener {
+            touchpadSensitivity = when (touchpadSensitivity) {
+                1.0f -> 1.5f
+                1.5f -> 2.0f
+                2.0f -> 2.5f
+                else -> 1.0f
+            }
+            btnTouchpadSensitivity.text = "⚡ ${touchpadSensitivity}x Hız"
+        }
+
+        // Dedicated Mouse Buttons
+        btnMouseLeft.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadClick("left")
+        }
+        btnMouseRight.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadClick("right")
+        }
+        btnMouseMiddle.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadClick("middle")
+        }
+
+        // Remote / Presentation Buttons
+        btnRemotePrevSlide.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("LEFT")
+        }
+        btnRemoteNextSlide.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("RIGHT")
+        }
+        btnRemoteStartF5.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("F5")
+        }
+        btnRemoteEsc.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("ESC")
+        }
+        btnRemoteSpace.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("SPACE")
+        }
+        btnRemoteEnter.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            sendTouchpadKey("ENTER")
+        }
+
+        // Gesture Trackpad Surface
+        var lastTouchX = 0f
+        var lastTouchY = 0f
+        var touchDownX = 0f
+        var touchDownY = 0f
+        var touchDownTime = 0L
+        var maxPointers = 1
+        var isScrolling = false
+
+        vTouchpadSurface.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchDownTime = System.currentTimeMillis()
+                    touchDownX = event.x
+                    touchDownY = event.y
+                    lastTouchX = event.x
+                    lastTouchY = event.y
+                    maxPointers = 1
+                    isScrolling = false
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                    true
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    maxPointers = maxOf(maxPointers, event.pointerCount)
+                    if (event.pointerCount >= 2) {
+                        isScrolling = true
+                        lastTouchY = (event.getY(0) + event.getY(1)) / 2f
+                    }
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (event.pointerCount == 1 && !isScrolling) {
+                        val dx = (event.x - lastTouchX) * touchpadSensitivity
+                        val dy = (event.y - lastTouchY) * touchpadSensitivity
+                        lastTouchX = event.x
+                        lastTouchY = event.y
+                        if (Math.abs(dx) > 0.05f || Math.abs(dy) > 0.05f) {
+                            sendTouchpadMove(dx, dy)
+                        }
+                    } else if (event.pointerCount >= 2) {
+                        val currentY = (event.getY(0) + event.getY(1)) / 2f
+                        val deltaY = currentY - lastTouchY
+                        lastTouchY = currentY
+                        if (Math.abs(deltaY) > 2f) {
+                            // Standard wheel delta in Windows
+                            val scrollAmount = (deltaY * 6f).toInt()
+                            sendTouchpadScroll(scrollAmount)
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                    val duration = System.currentTimeMillis() - touchDownTime
+                    val dist = Math.hypot((event.x - touchDownX).toDouble(), (event.y - touchDownY).toDouble())
+                    if (duration < 280 && dist < 25) {
+                        // Tap detected
+                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                        if (maxPointers == 1) {
+                            sendTouchpadClick("left")
+                        } else {
+                            sendTouchpadClick("right")
+                        }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.parent?.requestDisallowInterceptTouchEvent(false)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun sendTouchpadMove(dx: Float, dy: Float) {
+        val payload = TouchpadEventPayload(type = "move", dx = dx, dy = dy)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+    }
+
+    private fun sendTouchpadClick(button: String) {
+        val payload = TouchpadEventPayload(type = "click", button = button)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+    }
+
+    private fun sendTouchpadScroll(scrollY: Int) {
+        val payload = TouchpadEventPayload(type = "scroll", scroll_y = scrollY)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+    }
+
+    private fun sendTouchpadKey(key: String) {
+        val payload = TouchpadEventPayload(type = "key", key = key)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload)
     }
 
     private fun updateMediaUI(info: MediaInfoPayload) {

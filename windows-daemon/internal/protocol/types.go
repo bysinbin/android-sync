@@ -26,6 +26,7 @@ const (
 	EventFileUploadNotify     = "file_upload_notify"
 	EventNotificationReply    = "notification_reply"
 	EventNotificationAction   = "notification_action"
+	EventTouchpadEvent        = "touchpad_event"
 	EventRemoteAction         = "remote_action"
 	EventOpenUrl              = "open_url"
 	EventContactsRequest      = "contacts_request"
@@ -208,6 +209,16 @@ type NotificationReplyPayload struct {
 type NotificationActionPayload struct {
 	NotificationKey string `json:"notification_key"`
 	ActionIndex     int    `json:"action_index"`
+}
+
+// TouchpadEventPayload is sent when the user uses the phone screen as a trackpad / remote.
+type TouchpadEventPayload struct {
+	Type    string  `json:"type"`              // "move", "click", "scroll", "key"
+	DX      float32 `json:"dx,omitempty"`
+	DY      float32 `json:"dy,omitempty"`
+	Button  string  `json:"button,omitempty"`  // "left", "right", "middle"
+	ScrollY int     `json:"scroll_y,omitempty"`
+	Key     string  `json:"key,omitempty"`     // "LEFT", "RIGHT", "UP", "DOWN", "F5", "ESC", "ENTER", "SPACE", "VOL_UP", "VOL_DOWN", "MUTE"
 }
 
 // RemoteActionPayload carries remote control requests (lock, sleep, etc.)

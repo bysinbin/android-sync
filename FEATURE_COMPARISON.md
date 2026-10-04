@@ -30,9 +30,9 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Fotoğraf Galerisi Gezgini (Photos Explorer & Lightbox) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Ekran & Uygulama** | Telefon Ekranını Yansıtma (Screen Mirroring) | ❌ Eksik | ✅ Var | ❌ Yok |
 | | Android Uygulamalarını Bağımsız Pencerede Açma | ❌ Eksik | ✅ Var | ❌ Yok |
-| **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ❌ Eksik | ❌ Yok | ✅ Var |
-| | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ❌ Eksik | ❌ Yok | ✅ Var |
-| | Sunum Kumandası (Slayt Değiştirici & Pointer) | ❌ Eksik | ❌ Yok | ✅ Var |
+| **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
+| | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ✅ **Var (Tamamlandı - Hotkeys)** | ❌ Yok | ✅ Var |
+| | Sunum Kumandası (Slayt Değiştirici & Pointer) | ✅ **Var (Tamamlandı - F5/Esc/Slayt)** | ❌ Yok | ✅ Var |
 | | Uzaktan Özel Komut Çalıştırma (Lock, Sleep, Shutdown) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
 | | Biyometrik Kilit Açma (Parmak iziyle PC kilidi) | ❌ Eksik | ❌ Yok | ⚠️ Kısmi |
 | **Pano & Sistem** | Ortak Pano (Düz Metin) | ✅ Var | ✅ Var | ✅ Var |
@@ -130,14 +130,13 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 ```mermaid
 graph TD
-    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama & Aksiyon Butonları, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu] --> B[Aktif: Sanal Touchpad & Uzaktan Kumanda]
-    B --> C[Sonraki: Canlı Telefon Ekranı Yansıtma / Scrcpy]
+    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama & Aksiyon Butonları, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu, Sanal Touchpad & Sunum Kumandası] --> B[Aktif / Sonraki: Canlı Telefon Ekranı Yansıtma / Scrcpy]
 ```
 
-### Önerilen Sonraki Geliştirme Fazları:
-- **Faz 1 (Yüksek Öncelik / Tamamlananlar & Aktif):**
+### Tamamlanan ve Sıradaki Geliştirme Fazları:
+- **Faz 1 (Yüksek Öncelik - Tamamlananlar):**
   - **Bildirim Aksiyon Butonları (Notification Actions):** *(✅ Tamamlandı)* Telefonda bildirimle gelen interaktif butonların (Örn: "Okundu Say", "Arşive Kaldır", "Onayla") PC ve Mac arayüzünde canlı butonlar olarak listelenmesi ve tıklandığında anında telefonda tetiklenmesi.
-  - **Sanal Touchpad & Fare / Medya Kumandası:** Telefon ekranını hassas bir dokunmatik fare touchpad'i veya slayt / medya uzaktan kumandası gibi kullanarak PC/Mac faresini yönetebilme.
-- **Faz 2 (İleri Düzey Entegrasyonlar):**
+  - **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas bir dokunmatik laptop trackpad'i (1 parmak imleç, 1 parmak tıkla sol tık, 2 parmak tıkla sağ tık, 2 parmak dikey kaydır kaydırma/scroll) veya slayt / sunum uzaktan kumandası (F5, Esc, Enter, Önceki/Sonraki Slayt) olarak kullanarak Windows ve macOS'u gecikmesiz yönetebilme.
+- **Faz 2 (İleri Düzey Entegrasyonlar - Sonraki):**
   - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme ve uzaktan kontrol.
 

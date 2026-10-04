@@ -1361,6 +1361,12 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			log.Printf("[Galeri] %d adet fotoğraf telefondan başarıyla senkronize edildi", len(p.Photos))
 		}
 
+	case protocol.EventTouchpadEvent:
+		var p protocol.TouchpadEventPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			macos.HandleTouchpadEvent(p)
+		}
+
 	case protocol.EventPong:
 		// Heartbeat
 	}

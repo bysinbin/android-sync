@@ -82,6 +82,19 @@
                 android:layout_marginEnd="8dp" />
 
             <TextView
+                android:id="@+id/tabBtnTouchpad"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_inactive_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="🖱️ Touchpad"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
                 android:id="@+id/tabBtnMedia"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
@@ -391,6 +404,248 @@
                             android:textColor="@color/white"
                             android:paddingHorizontal="16dp"
                             android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============================================== -->
+            <!-- TAB: SANAL TOUCHPAD & UZAKTAN KUMANDA -->
+            <!-- ============================================== -->
+            <LinearLayout
+                android:id="@+id/panelTouchpad"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- Section Header with Sensitivity Toggle -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp"
+                    android:layout_marginTop="4dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="SANAL TOUCHPAD &amp; UZAKTAN KUMANDA"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <Button
+                        android:id="@+id/btnTouchpadSensitivity"
+                        android:layout_width="wrap_content"
+                        android:layout_height="32dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="⚡ 1.5x Hız"
+                        android:textColor="@color/accent_blue"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:paddingHorizontal="10dp" />
+                </LinearLayout>
+
+                <!-- Touchpad Gesture Surface -->
+                <FrameLayout
+                    android:id="@+id/vTouchpadSurface"
+                    android:layout_width="match_parent"
+                    android:layout_height="280dp"
+                    android:background="@drawable/trackpad_bg"
+                    android:clickable="true"
+                    android:focusable="true">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:orientation="vertical"
+                        android:padding="16dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="🖱️"
+                            android:textSize="36sp"
+                            android:layout_marginBottom="8dp" />
+
+                        <TextView
+                            android:id="@+id/tvTouchpadHint"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Parmağınızı kaydırarak fareyi kontrol edin"
+                            android:textColor="@color/text_primary"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:gravity="center" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="1 Parmak: Sol Tık • 2 Parmak: Sağ Tık • 2 Parmak Kaydırma: Scroll"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11sp"
+                            android:gravity="center"
+                            android:layout_marginTop="6dp" />
+                    </LinearLayout>
+                </FrameLayout>
+
+                <!-- Dedicated Mouse Buttons (Sol, Orta/Scroll, Sağ Tık) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
+
+                    <Button
+                        android:id="@+id/btnMouseLeft"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="2"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="🖱️ Sol Tık"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btnMouseMiddle"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="🔘 Orta"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:layout_marginEnd="6dp" />
+
+                    <Button
+                        android:id="@+id/btnMouseRight"
+                        android:layout_width="0dp"
+                        android:layout_height="52dp"
+                        android:layout_weight="2"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="🖱️ Sağ Tık"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Presentation & Remote Controller Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginTop="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="📽️ SUNUM &amp; MEDYA KUMANDASI"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08"
+                        android:layout_marginBottom="12dp" />
+
+                    <!-- Slideshow Navigation Row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="10dp">
+
+                        <Button
+                            android:id="@+id/btnRemotePrevSlide"
+                            android:layout_width="0dp"
+                            android:layout_height="46dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="◀ Önceki"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp"
+                            android:textStyle="bold"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btnRemoteStartF5"
+                            android:layout_width="0dp"
+                            android:layout_height="46dp"
+                            android:layout_weight="1.2"
+                            android:background="@drawable/btn_primary"
+                            android:backgroundTint="@null"
+                            android:text="📽️ Başlat (F5)"
+                            android:textColor="@color/white"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btnRemoteNextSlide"
+                            android:layout_width="0dp"
+                            android:layout_height="46dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="Sonraki ▶"
+                            android:textColor="@color/text_primary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <!-- Hotkeys & Audio Row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/btnRemoteEsc"
+                            android:layout_width="0dp"
+                            android:layout_height="42dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="⎋ Esc"
+                            android:textColor="@color/accent_orange"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btnRemoteSpace"
+                            android:layout_width="0dp"
+                            android:layout_height="42dp"
+                            android:layout_weight="1.2"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="␣ Boşluk"
+                            android:textColor="@color/text_primary"
+                            android:textSize="12sp"
+                            android:layout_marginEnd="6dp" />
+
+                        <Button
+                            android:id="@+id/btnRemoteEnter"
+                            android:layout_width="0dp"
+                            android:layout_height="42dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="↵ Enter"
+                            android:textColor="@color/accent_blue"
+                            android:textSize="12sp"
                             android:textStyle="bold" />
                     </LinearLayout>
                 </LinearLayout>
