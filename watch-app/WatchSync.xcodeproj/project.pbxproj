@@ -7,33 +7,33 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		B188DDD08EF5E442B3AFAF50 /* WatchSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18239604A1EFA44BA93BA29 /* WatchSyncApp.swift */; };
-		B199FC7A4596F64D5BB2010A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A951C349286748AEAA6B48 /* ContentView.swift */; };
-		B164372D60FF2E4903925596 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1248243028ACE492CBE2FD0 /* SyncModels.swift */; };
-		B15C36DCE3B8CE4274B82BB6 /* NetworkDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */; };
-		B1B72C92643EB6428CA336C1 /* WatchSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */; };
-		B1599DD72DFEE9481B8411D1 /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1849A9527E3174082A5A306 /* MediaView.swift */; };
+		B1001DE8A39E9E482580907A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F117F191846D914700A3F1F4 /* SettingsView.swift */; };
 		B108E0990304FA4032BE568E /* DevicesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1430C58B335F84BF3AB7BFA /* DevicesView.swift */; };
 		B10BCB20510B344EB99C7B54 /* RemoteActionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F119BD2D55DA4046C1B90CA1 /* RemoteActionsView.swift */; };
-		B1001DE8A39E9E482580907A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F117F191846D914700A3F1F4 /* SettingsView.swift */; };
-		B183BA38EC16D34E1D9BBD25 /* IncomingCallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10267F4912AB44B989C564E /* IncomingCallSheet.swift */; };
 		B1507B01BEA05D4AA58DCDAD /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F107211D05BA8A44F7A11697 /* Assets.xcassets */; };
+		B1599DD72DFEE9481B8411D1 /* MediaView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1849A9527E3174082A5A306 /* MediaView.swift */; };
+		B15C36DCE3B8CE4274B82BB6 /* NetworkDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */; };
+		B164372D60FF2E4903925596 /* SyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1248243028ACE492CBE2FD0 /* SyncModels.swift */; };
+		B183BA38EC16D34E1D9BBD25 /* IncomingCallSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = F10267F4912AB44B989C564E /* IncomingCallSheet.swift */; };
+		B188DDD08EF5E442B3AFAF50 /* WatchSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18239604A1EFA44BA93BA29 /* WatchSyncApp.swift */; };
+		B199FC7A4596F64D5BB2010A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A951C349286748AEAA6B48 /* ContentView.swift */; };
+		B1B72C92643EB6428CA336C1 /* WatchSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		A10000000000000000000001 /* WatchSync.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WatchSync.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		F18239604A1EFA44BA93BA29 /* WatchSyncApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncApp.swift; sourceTree = "<group>"; };
-		F1A951C349286748AEAA6B48 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		F1248243028ACE492CBE2FD0 /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModels.swift; sourceTree = "<group>"; };
-		F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscovery.swift; sourceTree = "<group>"; };
-		F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncService.swift; sourceTree = "<group>"; };
-		F1849A9527E3174082A5A306 /* MediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaView.swift; sourceTree = "<group>"; };
-		F1430C58B335F84BF3AB7BFA /* DevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesView.swift; sourceTree = "<group>"; };
-		F119BD2D55DA4046C1B90CA1 /* RemoteActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteActionsView.swift; sourceTree = "<group>"; };
-		F117F191846D914700A3F1F4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F10000000000000000000099 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		F10267F4912AB44B989C564E /* IncomingCallSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IncomingCallSheet.swift; sourceTree = "<group>"; };
 		F107211D05BA8A44F7A11697 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		F10000000000000000000099 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		F117F191846D914700A3F1F4 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		F119BD2D55DA4046C1B90CA1 /* RemoteActionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteActionsView.swift; sourceTree = "<group>"; };
+		F1248243028ACE492CBE2FD0 /* SyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SyncModels.swift; sourceTree = "<group>"; };
+		F1430C58B335F84BF3AB7BFA /* DevicesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DevicesView.swift; sourceTree = "<group>"; };
+		F18239604A1EFA44BA93BA29 /* WatchSyncApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncApp.swift; sourceTree = "<group>"; };
+		F1849A9527E3174082A5A306 /* MediaView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaView.swift; sourceTree = "<group>"; };
+		F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscovery.swift; sourceTree = "<group>"; };
+		F1A951C349286748AEAA6B48 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,7 +142,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastUpgradeCheck = 2700;
 				TargetAttributes = {
 					T10000000000000000000001 = {
 						CreatedOnToolsVersion = 15.0;
@@ -203,14 +203,34 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_OPTIMIZATION_LEVEL = 0;
@@ -218,14 +238,23 @@
 					"DEBUG=1",
 					"$(inherited)",
 				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+				ARCHS = "arm64 arm64_32";
+				VALID_ARCHS = "arm64 arm64_32";
+				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 			};
 			name = Debug;
 		};
@@ -233,22 +262,51 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
 				MTL_FAST_MATH = YES;
 				SDKROOT = watchos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				TARGETED_DEVICE_FAMILY = 4;
+				ARCHS = "arm64 arm64_32";
+				VALID_ARCHS = "arm64 arm64_32";
 				VALIDATE_PRODUCT = YES;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 			};
 			name = Release;
 		};
@@ -273,7 +331,9 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+				ARCHS = "arm64 arm64_32";
+				VALID_ARCHS = "arm64 arm64_32";
+				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 				WK_APPLICATION = YES;
 				WK_RUNS_INDEPENDENTLY_OF_COMPANION_APP = YES;
 			};
@@ -300,7 +360,9 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
-				WATCHOS_DEPLOYMENT_TARGET = 9.0;
+				ARCHS = "arm64 arm64_32";
+				VALID_ARCHS = "arm64 arm64_32";
+				WATCHOS_DEPLOYMENT_TARGET = 8.0;
 				WK_APPLICATION = YES;
 				WK_RUNS_INDEPENDENTLY_OF_COMPANION_APP = YES;
 			};
@@ -328,7 +390,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = P10000000000000000000001 /* Project object */;
 }
