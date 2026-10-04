@@ -98,15 +98,15 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 ---
 
 ### 6. Sistem & Ağ Entegrasyonları
-1. **Görsel Panosu (Image Clipboard):**
-   - PC'de `Win + Shift + S` ile alınan ekran görüntüsü veya kopyalanan resim doğrudan telefon panosuna `Bitmap/PNG` olarak aktarılır.
-1. **Görsel Panosu (Image Clipboard):**
-   - PC'de `Win + Shift + S` ile alınan ekran görüntüsü veya kopyalanan resim doğrudan telefon panosuna `Bitmap/PNG` olarak aktarılır.
+1. **Görsel Panosu (Image Clipboard Sync):** *(✅ Tamamlandı)*
+   - PC veya Mac'te `Win + Shift + S` / `Cmd + C` ile kopyalanan veya telefonda ekran görüntüsü alınan resimler doğrudan `PNG/Bitmap` formatında cihazlar arasında çift yönlü senkronize edilir. Web panellerinde anlık görsel önizlemesi ve indirme butonu yer alır.
 2. **Sekme / Web Sayfası Paylaşımı (Send Tab to Device):** *(✅ Tamamlandı)*
    - Telefondan veya PC/Mac tarayıcısından tek tıkla açık olan URL diğer cihazın varsayılan tarayıcısında anında açılır. Android paylaşım menüsü ve PC/Mac web panelleri entegredir.
 3. **Telefon Rehberi (Contacts) Entegrasyonu:** *(✅ Tamamlandı)*
    - Telefon rehberindeki kişiler PC ve Mac paneline taranarak alfabetik listelenir, anlık isim/numara araması, tek tıkla doğrudan arama (`DIAL`) ve hızlı SMS başlatma sunulur.
-4. **Anlık Kişisel Erişim Noktası (Instant Hotspot):**
+4. **Fotoğraf Galerisi Önizleyicisi (Photos Gallery & Lightbox):** *(✅ Tamamlandı)*
+   - Telefondaki kamera fotoğrafları ve ekran görüntüleri optimize thumbnail ve yüksek çözünürlüklü Lightbox modal ile PC/Mac web panelinde gezilebilir, tek tıkla indirilebilir.
+5. **Anlık Kişisel Erişim Noktası (Instant Hotspot):**
    - Telefonda hotspot açma ayarlarıyla uğraşmadan, PC üzerinden tek tıkla hücresel internet paylaşımını tetikleme ve bağlanma.
 
 ---
@@ -115,7 +115,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 1. **Çoklu Cihaz ve Mesh Mimarisi (Windows + Mac + Android Birlikte):**
    - **Phone Link:** Sadece 1 Windows PC ve 1 Android telefon arasında çalışır; macOS desteği hiç yoktur.
-   - **Android-Sync:** Aynı anda 1 Android telefon, 1 Windows masaüstü ve 1 MacBook'u tek bir ağda birbirine bağlar; pano, rehber, sekmeler ve bildirimler tüm cihazlar arasında çapraz senkronize edilir.
+   - **Android-Sync:** Aynı anda 1 Android telefon, 1 Windows masaüstü ve 1 MacBook'u tek bir ağda birbirine bağlar; pano (metin + görsel), rehber, galeri, sekmeler ve bildirimler tüm cihazlar arasında çapraz senkronize edilir.
 2. **Çift Yönlü Bildirim Akışı (PC/Mac -> Telefon):**
    - Phone Link ve KDE Connect yalnızca telefondaki bildirimi PC'ye taşır.
    - Projemiz, **Windows ve macOS'ta oluşan bildirimleri de yakalayarak gerçek zamanlı olarak telefona aktarır**.
@@ -130,18 +130,14 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 ```mermaid
 graph TD
-    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama, PC Komutları, Rehber & Sekme Paylaşımı] --> B[Aşama 1: Görsel Panosu & Bildirim Aksiyon Butonları]
-    B --> C[Aşama 2: Sanal Touchpad & Fare Kumandası]
-    C --> D[Aşama 3: Telefon Ekranını Yansıtma / Scrcpy]
+    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu] --> B[Aşama 1: Bildirim Aksiyon Butonları & Sanal Touchpad]
+    B --> C[Aşama 2: Canlı Telefon Ekranı Yansıtma / Scrcpy]
 ```
 
 ### Önerilen Sonraki Geliştirme Fazları:
 - **Faz 1 (Yüksek Öncelik / Hızlı Kazanım):**
-  - **Görsel Panosu (Image Clipboard):** Pano senkronizasyonuna Base64 PNG aktarımının eklenmesi (Windows clipboard image API + Android clipboard manager bitmap formatı).
-  - **Bildirim Aksiyon Butonları (Notification Actions):** Telefonda bildirimle gelen butonların PC ve Mac arayüzünde gösterilerek tıklanabilmesi.
-- **Faz 2 (Orta Öncelik / Yüksek Kullanılabilirlik):**
-  - **Sanal Touchpad / Fare Kumandası:** Telefon ekranını bir dizüstü bilgisayar touchpad'i gibi kullanarak PC/Mac faresini hareket ettirme ve tıklama yapma.
-  - **Fotoğraf Galerisi Gezgini (Photos Gallery):** Telefondaki son çekilen fotoğrafların PC/Mac panosundan küçük resimler (thumbnail) halinde önizlenmesi ve sürüklenip bırakılması.
-- **Faz 3 (İleri Düzey Entegrasyonlar):**
-  - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme.
+  - **Bildirim Aksiyon Butonları (Notification Actions):** Telefonda bildirimle gelen interaktif butonların (Örn: "Okundu Say", "Arşive Kaldır", "Onayla") PC ve Mac arayüzünde canlı gösterilerek tıklanabilmesi.
+  - **Sanal Touchpad & Fare / Medya Kumandası:** Telefon ekranını hassas bir dokunmatik fare touchpad'i veya slayt / medya uzaktan kumandası gibi kullanarak PC/Mac faresini yönetebilme.
+- **Faz 2 (İleri Düzey Entegrasyonlar):**
+  - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme ve uzaktan kontrol.
 

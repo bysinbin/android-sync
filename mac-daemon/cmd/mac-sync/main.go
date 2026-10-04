@@ -59,14 +59,22 @@ func main() {
 	fmt.Println("==================================================")
 
 
-	// Mac panosu değiştiğinde Android'e ilet
-	go clipManager.StartWatcher(ctx, func(text string) {
-		msg, err := protocol.NewMessage(protocol.EventClipboard, protocol.ClipboardPayload{
-			Text:      text,
-			Timestamp: time.Now().UnixMilli(),
-		})
+	// Mac panosu değiştiğinde Android'e ilet (Metin ve Görseller)
+	go clipManager.StartWatcher(ctx, func(item macos.ClipItem) {
+		payload := protocol.ClipboardPayload{
+			Text:        item.Text,
+			Type:        item.Type,
+			ImageBase64: item.ImageBase64,
+			MimeType:    item.MimeType,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		msg, err := protocol.NewMessage(protocol.EventClipboard, payload)
 		if err == nil {
-			log.Printf("[Pano] Mac'ten kopyalandı, telefona iletiliyor (%d bayt)", len(text))
+			if item.Type == "image" {
+				log.Printf("[Pano] 🖼 Mac'ten görsel kopyalandı, telefona iletiliyor (%d bayt)", len(item.ImageBase64))
+			} else {
+				log.Printf("[Pano] Mac'ten metin kopyalandı, telefona iletiliyor (%d bayt)", len(item.Text))
+			}
 			syncServer.Broadcast(msg)
 		}
 	})

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -237,6 +238,12 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		s.smsMu.RUnlock()
 
 		lastClip, _ := s.clipManager.GetClipboard()
+		var lastClipImg string
+		if imgBytes, err := s.clipManager.GetClipboardImage(); err == nil && len(imgBytes) > 0 {
+			if len(imgBytes) <= 3*1024*1024 {
+				lastClipImg = base64.StdEncoding.EncodeToString(imgBytes)
+			}
+		}
 
 		var callDurationSec int64 = 0
 		if callState != nil && callState.State == "OFFHOOK" && !callStart.IsZero() {
@@ -259,6 +266,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			"port":               s.port,
 			"notifications":      notifsCopy,
 			"clipboard":          lastClip,
+			"clipboard_image":    lastClipImg,
 			"sms_count":          smsCount,
 			"call_duration_sec":  callDurationSec,
 			"is_paired":          isPaired,
@@ -1116,8 +1124,17 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventClipboard:
 		var p protocol.ClipboardPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
-			log.Printf("[Pano] Telefondan metin alındı (%d bayt)", len(p.Text))
-			_ = s.clipManager.SetClipboard(p.Text)
+			if p.Type == "image" && p.ImageBase64 != "" {
+				imgBytes, err := base64.StdEncoding.DecodeString(p.ImageBase64)
+				if err == nil && len(imgBytes) > 0 {
+					log.Printf("[Pano] 🖼 Telefondan görsel alındı (%d bayt)", len(imgBytes))
+					_ = s.clipManager.SetClipboardImage(imgBytes)
+					_ = windows.ShowToast("📋 Pano: Görsel Alındı", "Telefonda kopyalanan görsel Windows panosuna yazıldı (Ctrl+V ile yapıştırabilirsiniz).", "Android Sync")
+				}
+			} else if p.Text != "" {
+				log.Printf("[Pano] Telefondan metin alındı (%d bayt)", len(p.Text))
+				_ = s.clipManager.SetClipboard(p.Text)
+			}
 		}
 
 	case protocol.EventFileUploadNotify:
@@ -2335,9 +2352,22 @@ const dashboardHTML = `<!DOCTYPE html>
                     <div class="card col-12">
                         <h3 style="font-size:18px; font-weight:700; margin-bottom:16px;">📋 Evrensel Ortak Pano (Mesh Clipboard)</h3>
                         <p style="font-size:13px; color:var(--text-secondary); margin-bottom:20px;">
-                            Bilgisayarınızda veya telefonunuzda bir metni kopyaladığınız anda tüm cihazlarınızın panosu senkronize edilir.
+                            Bilgisayarınızda veya telefonunuzda bir metni kopyaladığınız veya ekran görüntüsü aldığınız anda tüm cihazlarınızın panosu senkronize edilir.
                         </p>
-                        <div id="fullClipBox" style="background:rgba(0,0,0,0.4); border:1px solid var(--border-card); border-radius:var(--radius-md); padding:20px; font-family:'JetBrains Mono',monospace; font-size:14px; min-height:140px; margin-bottom:20px; white-space:pre-wrap; word-break:break-all;">Pano boş...</div>
+
+                        <!-- Görsel Pano Önizleme Alanı -->
+                        <div id="clipImageWrapper" style="display:none; margin-bottom:20px; padding:16px; background:rgba(0,0,0,0.3); border:1px solid var(--border-card); border-radius:var(--radius-md);">
+                            <div style="font-size:12px; font-weight:700; color:var(--accent-blue); margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+                                <span>🖼️ Panodaki Görsel (PNG)</span>
+                                <span id="clipImageSize" style="color:var(--text-muted); font-size:11px; font-weight:normal;"></span>
+                            </div>
+                            <img id="clipImagePreview" src="" style="max-height:260px; max-width:100%; border-radius:8px; object-fit:contain; border:1px solid rgba(255,255,255,0.1); background:#111;" />
+                            <div style="margin-top:12px; display:flex; gap:10px;">
+                                <a id="clipImageDownloadBtn" href="#" download="clipboard.png" class="btn btn-secondary" style="font-size:12px; padding:6px 14px; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">📥 Görseli İndir</a>
+                            </div>
+                        </div>
+
+                        <div id="fullClipBox" style="background:rgba(0,0,0,0.4); border:1px solid var(--border-card); border-radius:var(--radius-md); padding:20px; font-family:'JetBrains Mono',monospace; font-size:14px; min-height:100px; margin-bottom:20px; white-space:pre-wrap; word-break:break-all;">Pano boş...</div>
                         <div style="display:flex; gap:12px;">
                             <input type="text" id="customClipInput" class="search-input" placeholder="Telefona ve diğer cihazlara metin gönder...">
                             <button class="btn btn-primary" onclick="sendCustomClipText()">Panoya Aktar</button>
@@ -2766,6 +2796,25 @@ const dashboardHTML = `<!DOCTYPE html>
                 }
 
                 // Clipboard
+                if (data.clipboard_image) {
+                    const wrap = document.getElementById('clipImageWrapper');
+                    if (wrap) {
+                        wrap.style.display = 'block';
+                        const img = document.getElementById('clipImagePreview');
+                        img.src = 'data:image/png;base64,' + data.clipboard_image;
+                        const dl = document.getElementById('clipImageDownloadBtn');
+                        dl.href = 'data:image/png;base64,' + data.clipboard_image;
+                        const sizeEl = document.getElementById('clipImageSize');
+                        if (sizeEl) sizeEl.innerText = '(' + Math.round((data.clipboard_image.length * 3 / 4) / 1024) + ' KB)';
+                    }
+                    const qEl = document.getElementById('quickClipText');
+                    if (qEl && (!data.clipboard || data.clipboard === '')) {
+                        qEl.innerHTML = '<span style="color:var(--accent-blue);">🖼️ [Panoda Görsel Var - ' + Math.round((data.clipboard_image.length * 3 / 4) / 1024) + ' KB]</span>';
+                    }
+                } else {
+                    const wrap = document.getElementById('clipImageWrapper');
+                    if (wrap) wrap.style.display = 'none';
+                }
                 if (data.clipboard) {
                     document.getElementById('quickClipText').innerText = data.clipboard;
                     document.getElementById('fullClipBox').innerText = data.clipboard;

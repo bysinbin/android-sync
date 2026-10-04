@@ -180,8 +180,11 @@ data class PhoneCommandPayload(
 )
 
 data class ClipboardPayload(
-    val text: String,
-    val timestamp: Long
+    val text: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val type: String = "text", // "text" or "image"
+    val image_base64: String? = null,
+    val mime_type: String? = null
 )
 
 data class SmsMessage(

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net"
@@ -81,13 +82,24 @@ func main() {
 		},
 		OnSendClipboard: func() {
 			if syncServer != nil {
-				if clip, err := clipManager.GetClipboard(); err == nil && clip != "" {
+				if imgBytes, err := clipManager.GetClipboardImage(); err == nil && len(imgBytes) > 0 {
+					b64 := base64.StdEncoding.EncodeToString(imgBytes)
 					msg, _ := protocol.NewMessage(protocol.EventClipboard, protocol.ClipboardPayload{
+						Type:        "image",
+						ImageBase64: b64,
+						MimeType:    "image/png",
+						Timestamp:   time.Now().UnixMilli(),
+					})
+					syncServer.Broadcast(msg)
+					log.Printf("[Tray] 🖼 Bilgisayar görsel panosu telefona aktarıldı (%d bayt)", len(imgBytes))
+				} else if clip, err := clipManager.GetClipboard(); err == nil && clip != "" {
+					msg, _ := protocol.NewMessage(protocol.EventClipboard, protocol.ClipboardPayload{
+						Type:      "text",
 						Text:      clip,
 						Timestamp: time.Now().UnixMilli(),
 					})
 					syncServer.Broadcast(msg)
-					log.Printf("[Tray] Bilgisayar panosu telefona aktarıldı (%d bayt)", len(clip))
+					log.Printf("[Tray] Bilgisayar metin panosu telefona aktarıldı (%d bayt)", len(clip))
 				}
 			}
 		},
@@ -105,14 +117,22 @@ func main() {
 	// 3. Windows Görev Çubuğu (Tray) Başlat
 	trayManager.Start()
 
-	// 4. Windows Panosu değiştiğinde Android telefona ilet
-	go clipManager.StartWatcher(ctx, func(text string) {
-		msg, err := protocol.NewMessage(protocol.EventClipboard, protocol.ClipboardPayload{
-			Text:      text,
-			Timestamp: time.Now().UnixMilli(),
-		})
+	// 4. Windows Panosu değiştiğinde Android telefona ilet (Metin ve Görseller)
+	go clipManager.StartWatcher(ctx, func(item windows.ClipItem) {
+		payload := protocol.ClipboardPayload{
+			Text:        item.Text,
+			Type:        item.Type,
+			ImageBase64: item.ImageBase64,
+			MimeType:    item.MimeType,
+			Timestamp:   time.Now().UnixMilli(),
+		}
+		msg, err := protocol.NewMessage(protocol.EventClipboard, payload)
 		if err == nil {
-			log.Printf("[Pano] Windows'tan kopyalandı, telefona iletiliyor (%d bayt)", len(text))
+			if item.Type == "image" {
+				log.Printf("[Pano] 🖼 Windows'tan görsel kopyalandı, telefona iletiliyor (%d bayt)", len(item.ImageBase64))
+			} else {
+				log.Printf("[Pano] Windows'tan metin kopyalandı, telefona iletiliyor (%d bayt)", len(item.Text))
+			}
 			syncServer.Broadcast(msg)
 		}
 	})

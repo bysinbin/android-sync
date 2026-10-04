@@ -32,7 +32,7 @@ data class ConnectedHost(
 class SyncWebSocketClient(
     private val context: Context,
     private val onConnectionsChanged: (connectedCount: Int, hostNames: List<String>) -> Unit,
-    private val onClipboardReceived: (text: String, fromHostKey: String) -> Unit
+    private val onClipboardReceived: (payload: ClipboardPayload, fromHostKey: String) -> Unit
 ) {
     private val TAG = "SyncWebSocketClient"
     private val okHttpClient = OkHttpClient.Builder()
@@ -226,8 +226,8 @@ class SyncWebSocketClient(
                     val config = host?.clientId?.let { manager.getDevice(it) }
                     if (host?.isAuthorized == true && (config == null || config.allowClipboard)) {
                         val clip = Gson().fromJson(msg.payload, ClipboardPayload::class.java)
-                        Log.d(TAG, "[$hostName] Panodan metin alındı (${clip.text.length} karakter)")
-                        onClipboardReceived(clip.text, hostKey)
+                        Log.d(TAG, "[$hostName] Panodan içerik alındı (tip=${clip.type}, metin_uzunluğu=${clip.text.length}, görsel=${clip.image_base64 != null})")
+                        onClipboardReceived(clip, hostKey)
                     } else {
                         Log.w(TAG, "[$hostName] Pano izni kapalı veya yetkisiz cihaz, gözardı edildi.")
                     }
@@ -520,12 +520,8 @@ class SyncWebSocketClient(
         broadcastMessage(info.toSyncMessage(ProtocolEvents.MEDIA_INFO))
     }
 
-    fun sendClipboard(text: String, excludeHostKey: String? = null) {
+    fun sendClipboard(payload: ClipboardPayload, excludeHostKey: String? = null) {
         val manager = PairedDeviceManager.getInstance(context)
-        val payload = ClipboardPayload(
-            text = text,
-            timestamp = System.currentTimeMillis()
-        )
         val json = payload.toSyncMessage(ProtocolEvents.CLIPBOARD)
 
         for ((key, host) in hosts) {
@@ -536,6 +532,29 @@ class SyncWebSocketClient(
                 host.webSocket?.send(json)
             }
         }
+    }
+
+    fun sendClipboard(text: String, excludeHostKey: String? = null) {
+        sendClipboard(
+            ClipboardPayload(
+                text = text,
+                type = "text",
+                timestamp = System.currentTimeMillis()
+            ),
+            excludeHostKey
+        )
+    }
+
+    fun sendClipboardImage(imageBase64: String, mimeType: String = "image/png", excludeHostKey: String? = null) {
+        sendClipboard(
+            ClipboardPayload(
+                type = "image",
+                image_base64 = imageBase64,
+                mime_type = mimeType,
+                timestamp = System.currentTimeMillis()
+            ),
+            excludeHostKey
+        )
     }
 
     fun sendSmsSyncResponse(messages: List<SmsMessage>, targetHostKey: String? = null) {

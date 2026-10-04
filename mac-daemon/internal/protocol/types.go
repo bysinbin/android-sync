@@ -125,10 +125,13 @@ type PhoneCommandPayload struct {
 	Percent    float64 `json:"percent,omitempty"`
 }
 
-// ClipboardPayload represents synced clipboard text.
+// ClipboardPayload represents synced clipboard text or image.
 type ClipboardPayload struct {
-	Text      string `json:"text"`
-	Timestamp int64  `json:"timestamp"`
+	Text        string `json:"text"`
+	Timestamp   int64  `json:"timestamp"`
+	Type        string `json:"type,omitempty"`         // "text" or "image"
+	ImageBase64 string `json:"image_base64,omitempty"` // Base64 encoded PNG
+	MimeType    string `json:"mime_type,omitempty"`    // "image/png"
 }
 
 // SmsMessage represents an SMS message from/to phone.

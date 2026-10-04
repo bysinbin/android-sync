@@ -21,7 +21,13 @@ import com.sync.android.network.SyncWebSocketClient
 import android.app.PendingIntent
 import android.net.Uri
 import com.sync.android.MainActivity
-import com.sync.android.R
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.util.Base64
+import androidx.core.content.FileProvider
+import com.sync.android.model.ClipboardPayload
+import java.io.ByteArrayOutputStream
+import java.io.File
 
 class SyncForegroundService : Service() {
 
@@ -38,6 +44,7 @@ class SyncForegroundService : Service() {
     var discoveryClient: DiscoveryClient? = null
     private var clipboardManager: ClipboardManager? = null
     private var lastLocalClipboard: String = ""
+    private var lastLocalImageHash: Int = 0
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     lateinit var photosManager: PhotosManager
@@ -185,16 +192,50 @@ class SyncForegroundService : Service() {
                 updateNotification(statusText)
                 onStatusChanged?.invoke(count > 0, statusText)
             },
-            onClipboardReceived = { text, fromHostKey ->
-                if (text != lastLocalClipboard) {
-                    lastLocalClipboard = text
-                    clipboardManager?.setPrimaryClip(ClipData.newPlainText("Device Sync", text))
-                    onClipboardUpdate?.invoke(text)
-                    Log.d(TAG, "Pano güncellendi: ${text.take(30)}")
+            onClipboardReceived = { payload, fromHostKey ->
+                if (payload.type == "image" && !payload.image_base64.isNullOrEmpty()) {
+                    try {
+                        val imgBytes = Base64.decode(payload.image_base64, Base64.DEFAULT)
+                        if (imgBytes != null && imgBytes.isNotEmpty()) {
+                            val hash = imgBytes.contentHashCode()
+                            if (hash != lastLocalImageHash) {
+                                lastLocalImageHash = hash
+                                val clipDir = File(cacheDir, "clipboard").apply { mkdirs() }
+                                val clipFile = File(clipDir, "clip_image.png")
+                                clipFile.writeBytes(imgBytes)
 
-                    // Evrensel Pano Mesh İletimi: Metni diğer bağlı bilgisayarlara da ilet (Eğer ayar açıksa)
-                    if (com.sync.android.security.PairedDeviceManager.getInstance(this@SyncForegroundService).meshClipboardEnabled) {
-                        webSocketClient?.sendClipboard(text, excludeHostKey = fromHostKey)
+                                val contentUri = FileProvider.getUriForFile(
+                                    this@SyncForegroundService,
+                                    "${packageName}.fileprovider",
+                                    clipFile
+                                )
+
+                                val clipData = ClipData.newUri(contentResolver, "Pano Görseli", contentUri)
+                                clipboardManager?.setPrimaryClip(clipData)
+                                onClipboardUpdate?.invoke("🖼 [Pano Görseli: ${imgBytes.size / 1024} KB]")
+                                Log.d(TAG, "Pano görseli güncellendi (${imgBytes.size} bayt)")
+
+                                // Evrensel Pano Mesh İletimi
+                                if (com.sync.android.security.PairedDeviceManager.getInstance(this@SyncForegroundService).meshClipboardEnabled) {
+                                    webSocketClient?.sendClipboard(payload, excludeHostKey = fromHostKey)
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Gelen pano görseli işlenirken hata: ${e.message}")
+                    }
+                } else if (payload.text.isNotEmpty()) {
+                    val text = payload.text
+                    if (text != lastLocalClipboard) {
+                        lastLocalClipboard = text
+                        clipboardManager?.setPrimaryClip(ClipData.newPlainText("Device Sync", text))
+                        onClipboardUpdate?.invoke(text)
+                        Log.d(TAG, "Pano güncellendi: ${text.take(30)}")
+
+                        // Evrensel Pano Mesh İletimi: Metni diğer bağlı bilgisayarlara da ilet (Eğer ayar açıksa)
+                        if (com.sync.android.security.PairedDeviceManager.getInstance(this@SyncForegroundService).meshClipboardEnabled) {
+                            webSocketClient?.sendClipboard(payload, excludeHostKey = fromHostKey)
+                        }
                     }
                 }
             }
@@ -329,17 +370,74 @@ class SyncForegroundService : Service() {
     private fun initClipboard() {
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         clipboardManager?.addPrimaryClipChangedListener {
-            val clip = clipboardManager?.primaryClip
-            if (clip != null && clip.itemCount > 0) {
-                val text = clip.getItemAt(0).text?.toString() ?: ""
-                if (text.isNotEmpty() && text != lastLocalClipboard) {
-                    lastLocalClipboard = text
-                    // Tüm bağlı bilgisayarlara pano metnini gönder
-                    webSocketClient?.sendClipboard(text)
-                    onClipboardUpdate?.invoke(text)
-                    Log.d(TAG, "Pano değişti, tüm bilgisayarlara iletildi: ${text.take(30)}")
+            val clip = clipboardManager?.primaryClip ?: return@addPrimaryClipChangedListener
+            if (clip.itemCount == 0) return@addPrimaryClipChangedListener
+
+            val item = clip.getItemAt(0)
+
+            // 1. Önce görsel kontrolü (URI var mı ve görsel tipinde mi?)
+            val uri = item.uri
+            if (uri != null) {
+                val mime = contentResolver.getType(uri) ?: "image/png"
+                if (mime.startsWith("image/") || clip.description.hasMimeType("image/*")) {
+                    try {
+                        contentResolver.openInputStream(uri)?.use { stream ->
+                            val bytes = stream.readBytes()
+                            if (bytes.isNotEmpty()) {
+                                val hash = bytes.contentHashCode()
+                                if (hash != lastLocalImageHash) {
+                                    lastLocalImageHash = hash
+                                    val finalBytes = if (bytes.size > 3 * 1024 * 1024) compressImageBytes(bytes) else bytes
+                                    val b64 = Base64.encodeToString(finalBytes, Base64.NO_WRAP)
+                                    val payload = ClipboardPayload(
+                                        type = "image",
+                                        image_base64 = b64,
+                                        mime_type = "image/png",
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                    webSocketClient?.sendClipboard(payload)
+                                    onClipboardUpdate?.invoke("🖼 [Kopyalanan Görsel: ${finalBytes.size / 1024} KB]")
+                                    Log.d(TAG, "Telefondan pano görseli iletildi (${finalBytes.size} bayt)")
+                                    return@addPrimaryClipChangedListener
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Pano görseli okunamadı: ${e.message}")
+                    }
                 }
             }
+
+            // 2. Metin kontrolü
+            val text = item.text?.toString() ?: ""
+            if (text.isNotEmpty() && text != lastLocalClipboard) {
+                lastLocalClipboard = text
+                webSocketClient?.sendClipboard(text)
+                onClipboardUpdate?.invoke(text)
+                Log.d(TAG, "Pano metni değişti, tüm bilgisayarlara iletildi: ${text.take(30)}")
+            }
+        }
+    }
+
+    private fun compressImageBytes(bytes: ByteArray): ByteArray {
+        return try {
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return bytes
+            val out = ByteArrayOutputStream()
+            val maxDim = 1920
+            val scale = if (bmp.width > maxDim || bmp.height > maxDim) {
+                maxDim.toFloat() / Math.max(bmp.width, bmp.height)
+            } else 1.0f
+
+            val scaledBmp = if (scale < 1.0f) {
+                Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true)
+            } else {
+                bmp
+            }
+
+            scaledBmp.compress(Bitmap.CompressFormat.JPEG, 85, out)
+            out.toByteArray()
+        } catch (e: Exception) {
+            bytes
         }
     }
 
