@@ -5,12 +5,16 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,9 +117,45 @@ type SyncServer struct {
 	lastCallState   *protocol.CallStatePayload
 	callMu          sync.RWMutex
 	activeCallStart time.Time
-	smsMessages     []protocol.SmsMessage
-	smsMu           sync.RWMutex
-	audioHub        *AudioHub
+	smsMessages      []protocol.SmsMessage
+	smsMu            sync.RWMutex
+	transferredFiles []TransferredFile
+	filesMu          sync.RWMutex
+	sharedFilesDir   string
+	audioHub         *AudioHub
+}
+
+type TransferredFile struct {
+	ID        string `json:"id"`
+	FileName  string `json:"file_name"`
+	FileSize  int64  `json:"file_size"`
+	Path      string `json:"path"`
+	Direction string `json:"direction"` // "incoming" or "outgoing"
+	Timestamp int64  `json:"timestamp"`
+}
+
+func getDownloadsDir() string {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		dir := filepath.Join(home, "Downloads", "AndroidSync")
+		_ = os.MkdirAll(dir, 0755)
+		return dir
+	}
+	dir := filepath.Join(".", "Downloads")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
+}
+
+func getSharedFilesDir() string {
+	home, err := os.UserHomeDir()
+	if err == nil && home != "" {
+		dir := filepath.Join(home, "Library", "Application Support", "MacSync", "shared_files")
+		_ = os.MkdirAll(dir, 0755)
+		return dir
+	}
+	dir := filepath.Join(".", "shared_files")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
 }
 
 func getDaemonConfigPath() string {
@@ -156,10 +196,12 @@ func NewSyncServer(port int, serverName string, clipManager *macos.ClipboardMana
 		configPath:    cfgPath,
 		config:        cfg,
 		clipManager:   clipManager,
-		clients:       make(map[*websocket.Conn]bool),
-		notifications: make([]protocol.NotificationPayload, 0, 50),
-		smsMessages:   make([]protocol.SmsMessage, 0, 100),
-		audioHub:      NewAudioHub(),
+		clients:          make(map[*websocket.Conn]bool),
+		notifications:    make([]protocol.NotificationPayload, 0, 50),
+		smsMessages:      make([]protocol.SmsMessage, 0, 100),
+		transferredFiles: make([]TransferredFile, 0, 50),
+		sharedFilesDir:   getSharedFilesDir(),
+		audioHub:         NewAudioHub(),
 	}
 	s.saveConfig()
 	return s
@@ -298,6 +340,16 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		if callState != nil {
 			statusResp["call_state"] = callState
 		}
+
+		s.filesMu.RLock()
+		filesCopy := make([]TransferredFile, len(s.transferredFiles))
+		copy(filesCopy, s.transferredFiles)
+		s.filesMu.RUnlock()
+
+		statusResp["files_count"] = len(filesCopy)
+		statusResp["transferred_files"] = filesCopy
+		statusResp["downloads_dir"] = getDownloadsDir()
+
 		_ = json.NewEncoder(w).Encode(statusResp)
 	})
 
@@ -516,6 +568,265 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		}
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprintf(w, "OK\n")
+	})
+
+	// File Upload from Phone to Mac
+	mux.HandleFunc("/file/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := r.ParseMultipartForm(1024 * 1024 * 1024); err != nil {
+			http.Error(w, "Form parse hatası: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		destDir := getDownloadsDir()
+		files := r.MultipartForm.File["file"]
+		if len(files) == 0 {
+			http.Error(w, "Dosya bulunamadı", http.StatusBadRequest)
+			return
+		}
+
+		var uploadedList []TransferredFile
+		for _, fileHeader := range files {
+			src, err := fileHeader.Open()
+			if err != nil {
+				continue
+			}
+
+			cleanName := filepath.Base(fileHeader.Filename)
+			dstPath := filepath.Join(destDir, cleanName)
+			if _, err := os.Stat(dstPath); err == nil {
+				ext := filepath.Ext(cleanName)
+				base := strings.TrimSuffix(cleanName, ext)
+				dstPath = filepath.Join(destDir, fmt.Sprintf("%s_%d%s", base, time.Now().UnixMilli()%10000, ext))
+			}
+
+			dst, err := os.Create(dstPath)
+			if err != nil {
+				src.Close()
+				continue
+			}
+
+			written, err := io.Copy(dst, src)
+			src.Close()
+			dst.Close()
+
+			if err == nil {
+				fInfo := TransferredFile{
+					ID:        fmt.Sprintf("file_%d", time.Now().UnixMilli()),
+					FileName:  filepath.Base(dstPath),
+					FileSize:  written,
+					Path:      dstPath,
+					Direction: "incoming",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				s.filesMu.Lock()
+				s.transferredFiles = append([]TransferredFile{fInfo}, s.transferredFiles...)
+				if len(s.transferredFiles) > 100 {
+					s.transferredFiles = s.transferredFiles[:100]
+				}
+				s.filesMu.Unlock()
+
+				uploadedList = append(uploadedList, fInfo)
+				sizeMB := float64(written) / (1024 * 1024)
+				_ = macos.ShowNotification("📁 Yeni Dosya Alındı: "+fInfo.FileName, fmt.Sprintf("%.2f MB - İndirilenler klasörüne kaydedildi.", sizeMB), "Android Sync", "Glass")
+				log.Printf("[Dosya] Mac'e dosya başarıyla alındı: %s (%.2f MB)", dstPath, sizeMB)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"files":   uploadedList,
+		})
+	})
+
+	// File Send from Mac to Phone (via Web Dashboard)
+	mux.HandleFunc("/file/send_to_phone", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST required", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := r.ParseMultipartForm(1024 * 1024 * 1024); err != nil {
+			http.Error(w, "Form parse hatası: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		files := r.MultipartForm.File["file"]
+		if len(files) == 0 {
+			http.Error(w, "Dosya belirtilmedi", http.StatusBadRequest)
+			return
+		}
+
+		sharedDir := getSharedFilesDir()
+		var notifiedList []protocol.FileAvailablePayload
+
+		for _, fh := range files {
+			src, err := fh.Open()
+			if err != nil {
+				continue
+			}
+
+			fileID := fmt.Sprintf("share_%d", time.Now().UnixMilli())
+			cleanName := filepath.Base(fh.Filename)
+			dstPath := filepath.Join(sharedDir, fmt.Sprintf("%s_%s", fileID, cleanName))
+
+			dst, err := os.Create(dstPath)
+			if err != nil {
+				src.Close()
+				continue
+			}
+
+			written, err := io.Copy(dst, src)
+			src.Close()
+			dst.Close()
+
+			if err == nil {
+				fInfo := TransferredFile{
+					ID:        fileID,
+					FileName:  cleanName,
+					FileSize:  written,
+					Path:      dstPath,
+					Direction: "outgoing",
+					Timestamp: time.Now().UnixMilli(),
+				}
+				s.filesMu.Lock()
+				s.transferredFiles = append([]TransferredFile{fInfo}, s.transferredFiles...)
+				s.filesMu.Unlock()
+
+				dlURL := fmt.Sprintf("http://%s:%d/file/download/%s/%s", getLocalIP(), s.port, fileID, url.PathEscape(cleanName))
+				p := protocol.FileAvailablePayload{
+					ID:          fileID,
+					FileName:    cleanName,
+					FileSize:    written,
+					DownloadURL: dlURL,
+					MimeType:    fh.Header.Get("Content-Type"),
+					Sender:      s.serverName,
+					Timestamp:   time.Now().UnixMilli(),
+				}
+				notifiedList = append(notifiedList, p)
+
+				msg, _ := protocol.NewMessage(protocol.EventFileAvailable, p)
+				s.Broadcast(msg)
+				log.Printf("[Dosya] Mac'ten telefona dosya hazırlandı ve sinyal gönderildi: %s (URL: %s)", cleanName, dlURL)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"sent":    notifiedList,
+		})
+	})
+
+	// File Download endpoint (Phone or Browser downloads shared file)
+	mux.HandleFunc("/file/download/", func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/file/download/"), "/")
+		if len(parts) == 0 || parts[0] == "" {
+			http.Error(w, "Dosya belirtilmedi", http.StatusBadRequest)
+			return
+		}
+		fileID := parts[0]
+		var targetPath string
+		var origName string
+
+		s.filesMu.RLock()
+		for _, tf := range s.transferredFiles {
+			if tf.ID == fileID {
+				targetPath = tf.Path
+				origName = tf.FileName
+				break
+			}
+		}
+		s.filesMu.RUnlock()
+
+		if targetPath == "" || !func() bool { _, err := os.Stat(targetPath); return err == nil }() {
+			matches, _ := filepath.Glob(filepath.Join(getSharedFilesDir(), fileID+"_*"))
+			if len(matches) > 0 {
+				targetPath = matches[0]
+				origName = strings.TrimPrefix(filepath.Base(targetPath), fileID+"_")
+			}
+		}
+
+		if targetPath == "" {
+			http.Error(w, "Dosya bulunamadı", http.StatusNotFound)
+			return
+		}
+
+		if origName == "" {
+			origName = filepath.Base(targetPath)
+		}
+
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", origName))
+		http.ServeFile(w, r, targetPath)
+	})
+
+	// Open Downloads Folder in macOS Finder
+	mux.HandleFunc("/file/open_folder", func(w http.ResponseWriter, r *http.Request) {
+		dir := getDownloadsDir()
+		_ = exec.Command("open", dir).Start()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "path": dir})
+	})
+
+	// Transferred Files List API
+	mux.HandleFunc("/file/list", func(w http.ResponseWriter, r *http.Request) {
+		s.filesMu.RLock()
+		list := make([]TransferredFile, len(s.transferredFiles))
+		copy(list, s.transferredFiles)
+		s.filesMu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"files": list,
+			"count": len(list),
+			"dir":   getDownloadsDir(),
+		})
+	})
+
+	// Notification Inline Reply API
+	mux.HandleFunc("/notification/reply", func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		text := r.URL.Query().Get("text")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if k := r.FormValue("key"); k != "" {
+				key = k
+			}
+			if t := r.FormValue("text"); t != "" {
+				text = t
+			}
+		}
+
+		if key == "" || text == "" {
+			http.Error(w, "key and text required", http.StatusBadRequest)
+			return
+		}
+
+		s.SendNotificationReply(key, 0, text)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key})
+	})
+
+	// Remote Action API (Lock, Sleep, Shutdown, Restart)
+	mux.HandleFunc("/remote/action", func(w http.ResponseWriter, r *http.Request) {
+		action := r.URL.Query().Get("action")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if a := r.FormValue("action"); a != "" {
+				action = a
+			}
+		}
+		if action == "" {
+			http.Error(w, "action required", http.StatusBadRequest)
+			return
+		}
+
+		s.executeRemoteAction(action)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
 
 	// Live audio streaming from Mac to Android
@@ -828,8 +1139,65 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			_ = s.clipManager.SetClipboard(p.Text)
 		}
 
+	case protocol.EventFileUploadNotify:
+		var p protocol.FileUploadNotifyPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.filesMu.Lock()
+			s.transferredFiles = append([]TransferredFile{{
+				ID:        p.ID,
+				FileName:  p.FileName,
+				FileSize:  p.FileSize,
+				Path:      p.Path,
+				Direction: "incoming",
+				Timestamp: p.Timestamp,
+			}}, s.transferredFiles...)
+			if len(s.transferredFiles) > 100 {
+				s.transferredFiles = s.transferredFiles[:100]
+			}
+			s.filesMu.Unlock()
+
+			sizeMB := float64(p.FileSize) / (1024 * 1024)
+			_ = macos.ShowNotification("📁 Yeni Dosya Alındı: "+p.FileName, fmt.Sprintf("%.2f MB - İndirilenler klasörüne kaydedildi.", sizeMB), "Android Sync", "Glass")
+			log.Printf("[Dosya] Telefonda dosya bildirimi alındı: %s (%.2f MB)", p.FileName, sizeMB)
+		}
+
+	case protocol.EventRemoteAction:
+		var p protocol.RemoteActionPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.executeRemoteAction(p.Action)
+		}
+
 	case protocol.EventPong:
 		// Heartbeat
+	}
+}
+
+// SendNotificationReply sends an inline reply to an Android notification.
+func (s *SyncServer) SendNotificationReply(key string, actionIndex int, text string) {
+	payload := protocol.NotificationReplyPayload{
+		NotificationKey: key,
+		ActionIndex:     actionIndex,
+		ReplyText:       text,
+	}
+	msg, err := protocol.NewMessage(protocol.EventNotificationReply, payload)
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Bildirim Yanıtı] Yanıt iletildi (%s): %s", key, text)
+	}
+}
+
+// executeRemoteAction executes remote macOS commands (Lock, Sleep, Shutdown, Restart).
+func (s *SyncServer) executeRemoteAction(action string) {
+	log.Printf("[Remote] Uzaktan Mac sistem komutu tetiklendi: %s", action)
+	switch action {
+	case "LOCK":
+		_ = exec.Command("pmset", "displaysleepnow").Start()
+	case "SLEEP":
+		_ = exec.Command("pmset", "sleepnow").Start()
+	case "SHUTDOWN":
+		_ = exec.Command("osascript", "-e", "tell app \"System Events\" to shut down").Start()
+	case "RESTART":
+		_ = exec.Command("osascript", "-e", "tell app \"System Events\" to restart").Start()
 	}
 }
 
@@ -1432,6 +1800,10 @@ const dashboardHTML = `<!DOCTYPE html>
                 <div class="nav-item" onclick="switchTab('tab-pairing', this)">
                     <span>🔒</span> Güvenlik & Eşleşme
                 </div>
+                <div class="nav-item" onclick="switchTab('tab-files', this)">
+                    <span>📁</span> Dosya Paylaşımı
+                    <span class="badge-count" id="filesCountBadge" style="display:none;">0</span>
+                </div>
             </nav>
 
             <div class="sidebar-bottom">
@@ -1451,6 +1823,8 @@ const dashboardHTML = `<!DOCTYPE html>
                     <h1 id="pageTitle">Genel Bakış</h1>
                 </div>
                 <div class="topbar-actions">
+                    <button class="btn-action" style="background:rgba(255,255,255,0.06); border:1px solid var(--border-card); color:var(--text-primary);" onclick="remoteAction('LOCK')" title="Mac'i Kilitle">🔒 Kilitle</button>
+                    <button class="btn-action" style="background:rgba(255,255,255,0.06); border:1px solid var(--border-card); color:var(--text-primary);" onclick="remoteAction('SLEEP')" title="Mac'i Uyku Moduna Al">🌙 Uyku</button>
                     <div id="pairingBadge" style="font-size: 12px; padding: 6px 12px; border-radius: 20px; font-weight: 700; background: rgba(245, 158, 11, 0.15); color: var(--accent-yellow);">
                         🟡 Eşleşme Bekleniyor
                     </div>
@@ -1769,6 +2143,56 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
                     </div>
                 </div>
+
+                <!-- TAB: FILES -->
+                <div id="tab-files" class="tab-pane">
+                    <div style="display:flex; flex-direction:column; gap:20px;">
+                        <div class="glass-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                                <h3 style="font-size: 16px; font-weight: 700;">📁 Wi-Fi Dosya Gönderimi (Mac ➡️ Telefon)</h3>
+                                <button class="btn-action" onclick="openDownloadsFolder()">📂 İndirilenler Klasörünü Aç</button>
+                            </div>
+                            <div id="dropZone" style="border: 2px dashed rgba(56, 189, 248, 0.4); border-radius: var(--radius-lg); padding: 40px 20px; text-align: center; background: rgba(56, 189, 248, 0.04); cursor: pointer; transition: all 0.3s ease;">
+                                <div style="font-size: 40px; margin-bottom: 12px;">📤</div>
+                                <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Dosyaları buraya sürükleyip bırakın veya tıklayın</div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">Fotoğraflar, videolar ve belgeler doğrudan telefonun Downloads klasörüne aktarılır</div>
+                                <input type="file" id="filePickerInput" multiple style="display: none;" onchange="handleFileSelect(event)">
+                            </div>
+                            <div id="uploadProgressBox" style="display:none; margin-top:16px; padding:12px 16px; background:rgba(0,0,0,0.3); border-radius:var(--radius-md);">
+                                <div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:6px;">
+                                    <span id="uploadFileName">Aktarılıyor...</span>
+                                    <span id="uploadPercent">0%</span>
+                                </div>
+                                <div style="width:100%; height:6px; background:rgba(255,255,255,0.1); border-radius:99px; overflow:hidden;">
+                                    <div id="uploadProgressBar" style="width:0%; height:100%; background:linear-gradient(90deg, #38BDF8, #6366F1); transition:width 0.2s;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="glass-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                                <h3 style="font-size: 16px; font-weight: 700;">🔄 Aktarılan Dosyalar Geçmişi</h3>
+                                <button class="btn-action" style="font-size:12px; padding:4px 10px;" onclick="loadTransferredFiles()">Yenile 🔄</button>
+                            </div>
+                            <div style="overflow-x:auto;">
+                                <table style="width:100%; border-collapse:collapse; font-size:13px; text-align:left;">
+                                    <thead>
+                                        <tr style="border-bottom:1px solid var(--border-card); color:var(--text-muted); font-size:11px; text-transform:uppercase;">
+                                            <th style="padding:10px 14px;">Yön</th>
+                                            <th style="padding:10px 14px;">Dosya Adı</th>
+                                            <th style="padding:10px 14px;">Boyut</th>
+                                            <th style="padding:10px 14px;">Tarih</th>
+                                            <th style="padding:10px 14px; text-align:right;">İşlem</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="filesTableBody">
+                                        <tr><td colspan="5" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </main>
     </div>
@@ -1794,6 +2218,9 @@ const dashboardHTML = `<!DOCTYPE html>
                     const pageTitle = document.getElementById('pageTitle');
                     if (pageTitle) pageTitle.textContent = navItem.textContent.trim().replace(/^[^a-zA-ZçÇğĞıİöÖşŞüÜ]+/, '');
                 }
+            }
+            if (tabId === 'tab-files' || tabId === 'files') {
+                loadTransferredFiles();
             }
         }
 
@@ -2074,6 +2501,13 @@ const dashboardHTML = `<!DOCTYPE html>
                         let nHtml = '';
                         for (const n of s.notifications.slice(0, 8)) {
                             const timeStr = n.timestamp ? new Date(n.timestamp).toLocaleTimeString() : '';
+                            var replyBox = '';
+                            if (n.can_reply && n.key) {
+                                replyBox = '<div style="margin-top:10px; display:flex; gap:8px;">' +
+                                    '<input type="text" id="replyInput_' + n.id + '" placeholder="Yanıt yazın..." style="flex:1; background:var(--bg-input); border:1px solid var(--border-card); border-radius:var(--radius-sm); padding:6px 12px; color:var(--text-primary); font-size:12px; outline:none;" onkeydown="if(event.key===\'Enter\') sendNotificationReply(\'' + n.key + '\', \'' + n.id + '\')">' +
+                                    '<button class="btn-action btn-primary" style="font-size:12px; padding:6px 14px;" onclick="sendNotificationReply(\'' + n.key + '\', \'' + n.id + '\')">Yanıtla</button>' +
+                                '</div>';
+                            }
                             nHtml += '<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px;">' +
                                 '<div style="display:flex; justify-content:space-between; margin-bottom:2px;">' +
                                     '<strong style="color:var(--accent-blue); font-size:12px;">' + (n.app_name || 'Uygulama') + '</strong>' +
@@ -2081,11 +2515,20 @@ const dashboardHTML = `<!DOCTYPE html>
                                 '</div>' +
                                 '<div style="font-weight:700; font-size:13px;">' + (n.title || '') + '</div>' +
                                 '<div style="font-size:12px; color:var(--text-secondary); margin-top:2px;">' + (n.text || '') + '</div>' +
+                                replyBox +
                             '</div>';
                         }
                         notifsContainer.innerHTML = nHtml;
                     } else {
                         notifsContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 13px;">Henüz bildirim gelmedi.</div>';
+                    }
+                }
+
+                if (s.files_count !== undefined) {
+                    const fcBadge = document.getElementById('filesCountBadge');
+                    if (fcBadge) {
+                        fcBadge.textContent = s.files_count;
+                        fcBadge.style.display = s.files_count > 0 ? 'inline-flex' : 'none';
                     }
                 }
 
@@ -2211,9 +2654,184 @@ const dashboardHTML = `<!DOCTYPE html>
             }).catch(() => {});
         }
 
+        async function sendNotificationReply(key, id) {
+            const input = document.getElementById('replyInput_' + id);
+            const text = input ? input.value.trim() : '';
+            if (!text) return;
+            try {
+                await fetch('/notification/reply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'key=' + encodeURIComponent(key) + '&text=' + encodeURIComponent(text)
+                });
+                if (input) input.value = '';
+                alert('Yanıt telefona iletildi ✅');
+            } catch (e) {
+                console.error(e);
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        async function remoteAction(action) {
+            const actionNames = {
+                'LOCK': "Mac'i Kilitlemek",
+                'SLEEP': "Mac'i Uyku Moduna Almak",
+                'SHUTDOWN': "Mac'i Kapatmak",
+                'RESTART': "Mac'i Yeniden Başlatmak"
+            };
+            const label = actionNames[action] || action;
+            if (!confirm(label + ' istediğinizden emin misiniz?')) return;
+            try {
+                await fetch('/remote/action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: 'action=' + encodeURIComponent(action)
+                });
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function openDownloadsFolder() {
+            try {
+                await fetch('/file/open_folder');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function loadTransferredFiles() {
+            try {
+                const res = await fetch('/file/list');
+                const data = await res.json();
+                const files = data.files || [];
+                const tbody = document.getElementById('filesTableBody');
+                const badge = document.getElementById('filesCountBadge');
+                if (badge) {
+                    badge.textContent = files.length;
+                    badge.style.display = files.length > 0 ? 'inline-flex' : 'none';
+                }
+                if (!tbody) return;
+                if (!files.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = files.map(function(f) {
+                    const isInc = f.direction === 'incoming';
+                    const dirIcon = isInc ? '📥 Gelen' : '📤 Giden';
+                    const dirColor = isInc ? 'var(--accent-green)' : 'var(--accent-blue)';
+                    const sizeStr = (f.file_size / (1024 * 1024)).toFixed(2) + ' MB';
+                    const dlBtn = isInc 
+                        ? '<button class="btn-action" style="font-size:11px; padding:4px 10px;" onclick="openDownloadsFolder()">Finder\'da Göster</button>'
+                        : '<a href="/file/download/' + f.id + '/' + encodeURIComponent(f.file_name) + '" class="btn-action" style="font-size:11px; padding:4px 10px; text-decoration:none;">İndir</a>';
+                    return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
+                        '<td style="padding:12px 14px; color:' + dirColor + '; font-weight:700;">' + dirIcon + '</td>' +
+                        '<td style="padding:12px 14px; font-weight:600;">' + escapeHtml(f.file_name) + '</td>' +
+                        '<td style="padding:12px 14px; color:var(--text-muted);">' + sizeStr + '</td>' +
+                        '<td style="padding:12px 14px; color:var(--text-muted);">' + formatTime(f.timestamp) + '</td>' +
+                        '<td style="padding:12px 14px; text-align:right;">' + dlBtn + '</td>' +
+                    '</tr>';
+                }).join('');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function uploadFilesToPhone(files) {
+            if (!files || files.length === 0) return;
+            const box = document.getElementById('uploadProgressBox');
+            const nameEl = document.getElementById('uploadFileName');
+            const barEl = document.getElementById('uploadProgressBar');
+            const pctEl = document.getElementById('uploadPercent');
+
+            if (box) box.style.display = 'block';
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                if (nameEl) nameEl.innerText = file.name + ' (' + (i + 1) + '/' + files.length + ') telefona gönderiliyor...';
+                if (barEl) barEl.style.width = '30%';
+                if (pctEl) pctEl.innerText = '30%';
+
+                const formData = new FormData();
+                formData.append('file', file);
+
+                try {
+                    if (barEl) barEl.style.width = '70%';
+                    if (pctEl) pctEl.innerText = '70%';
+                    const res = await fetch('/file/send_to_phone', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (barEl) barEl.style.width = '100%';
+                    if (pctEl) pctEl.innerText = '100%';
+                    const json = await res.json();
+                } catch (e) {
+                    console.error(e);
+                    alert('Gönderim hatası: ' + e.message);
+                }
+            }
+            setTimeout(function() {
+                if (box) box.style.display = 'none';
+                if (barEl) barEl.style.width = '0%';
+                loadTransferredFiles();
+            }, 1200);
+        }
+
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            uploadFilesToPhone(files);
+        }
+
+        function setupDropZone() {
+            const dropZone = document.getElementById('dropZone');
+            const fileInput = document.getElementById('filePickerInput');
+            if (!dropZone || !fileInput) return;
+
+            dropZone.addEventListener('click', function() {
+                fileInput.click();
+            });
+
+            ['dragenter', 'dragover'].forEach(function(evt) {
+                dropZone.addEventListener(evt, function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropZone.style.borderColor = 'var(--accent-blue)';
+                    dropZone.style.background = 'rgba(56, 189, 248, 0.12)';
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(function(evt) {
+                dropZone.addEventListener(evt, function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropZone.style.borderColor = 'rgba(56, 189, 248, 0.4)';
+                    dropZone.style.background = 'rgba(56, 189, 248, 0.04)';
+                }, false);
+            });
+
+            dropZone.addEventListener('drop', function(e) {
+                const dt = e.dataTransfer;
+                if (dt && dt.files) {
+                    uploadFilesToPhone(dt.files);
+                }
+            }, false);
+        }
+
+        function escapeHtml(str) {
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function formatTime(ts) {
+            if (!ts) return '';
+            const d = new Date(ts);
+            return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        }
+
         setInterval(fetchStatus, 2000);
         fetchStatus();
         loadSmsList();
+        loadTransferredFiles();
+        window.addEventListener('DOMContentLoaded', setupDropZone);
+        setTimeout(setupDropZone, 500);
     </script>
 </body>
 </html>`

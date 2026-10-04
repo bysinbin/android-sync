@@ -226,6 +226,17 @@ class SyncForegroundService : Service() {
                 // Mesh forwarding: Bilgisayarlar arası bildirim iletimi (Windows <-> Mac)
                 webSocketClient?.sendPCNotification(notif, excludeHostKey = fromHostKey)
             }
+            onFileAvailableReceived = { payload, _ ->
+                FileManager.downloadFile(this@SyncForegroundService, payload)
+            }
+            onNotificationReplyReceived = { payload, _ ->
+                val ok = SyncNotificationListenerService.replyToNotification(
+                    key = payload.notification_key,
+                    actionIndex = payload.action_index,
+                    text = payload.reply_text
+                )
+                Log.d(TAG, "Bildirime yanıt verildi: $ok (key=${payload.notification_key})")
+            }
         }
 
         // Ağdaki tüm cihazları (Windows PC, Mac vb.) dinle ve hepsine bağlan

@@ -108,6 +108,19 @@
                 android:layout_marginEnd="8dp" />
 
             <TextView
+                android:id="@+id/tabBtnFiles"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:background="@drawable/tab_inactive_bg"
+                android:gravity="center"
+                android:paddingHorizontal="14dp"
+                android:text="📁 Dosyalar"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
                 android:id="@+id/tabBtnSettings"
                 android:layout_width="wrap_content"
                 android:layout_height="36dp"
@@ -1005,7 +1018,105 @@
             </LinearLayout>
 
             <!-- ============================================== -->
-            <!-- TAB 4: PERMISSIONS & SETTINGS PANEL -->
+            <!-- TAB 4: FILE SHARING PANEL -->
+            <!-- ============================================== -->
+            <LinearLayout
+                android:id="@+id/panelFiles"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <!-- File Send Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BİLGİSAYARA DOSYA GÖNDER"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Telefonunuzdaki fotoğraf, video veya belgeleri Wi-Fi üzerinden saniyeler içinde bağlı bilgisayarınıza aktarın."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnSelectAndSendFile"
+                        android:layout_width="match_parent"
+                        android:layout_height="46dp"
+                        android:layout_marginTop="14dp"
+                        android:background="@drawable/btn_primary"
+                        android:backgroundTint="@null"
+                        android:text="📁 Dosya Seç ve Bilgisayara Gönder"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvFileTransferStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:gravity="center"
+                        android:text="💡 İpucu: Herhangi bir uygulamadan 'Paylaş' &gt; 'Android Sync' seçerek de doğrudan gönderebilirsiniz."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Received Files Info Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BİLGİSAYARDAN GELEN DOSYALAR"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Bilgisayar web arayüzünden sürükleyip bıraktığınız dosyalar telefonunuzun 'İndirilenler' (Downloads) klasörüne anında kaydedilir."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnOpenDownloadsFolder"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="14dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="📂 İndirilenler Klasörünü Aç"
+                        android:textColor="@color/white"
+                        android:textSize="13sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ============================================== -->
+            <!-- TAB 5: PERMISSIONS & SETTINGS PANEL -->
             <!-- ============================================== -->
             <LinearLayout
                 android:id="@+id/panelSettings"

@@ -22,6 +22,10 @@ object ProtocolEvents {
     const val AUTH_RESPONSE = "auth_response"
     const val PAIR_CONFIRM = "pair_confirm"
     const val UNPAIR = "unpair"
+    const val FILE_AVAILABLE = "file_available"
+    const val FILE_UPLOAD_NOTIFY = "file_upload_notify"
+    const val NOTIFICATION_REPLY = "notification_reply"
+    const val REMOTE_ACTION = "remote_action"
     const val PING = "ping"
     const val PONG = "pong"
 }
@@ -65,7 +69,39 @@ data class NotificationPayload(
     val app_name: String,
     val title: String,
     val text: String,
+    val timestamp: Long,
+    val key: String? = null,
+    val can_reply: Boolean = false
+)
+
+data class FileAvailablePayload(
+    val id: String,
+    val file_name: String,
+    val file_size: Long,
+    val download_url: String,
+    val mime_type: String? = null,
+    val sender: String,
     val timestamp: Long
+)
+
+data class FileUploadNotifyPayload(
+    val id: String,
+    val file_name: String,
+    val file_size: Long,
+    val path: String,
+    val sender: String,
+    val timestamp: Long
+)
+
+data class NotificationReplyPayload(
+    val notification_key: String,
+    val action_index: Int = 0,
+    val reply_text: String
+)
+
+data class RemoteActionPayload(
+    val action: String, // LOCK, SLEEP, SHUTDOWN, RESTART
+    val param: String? = null
 )
 
 data class CallStatePayload(

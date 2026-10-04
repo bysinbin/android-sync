@@ -54,6 +54,8 @@ class SyncWebSocketClient(
     var onPairingRequested: ((host: ConnectedHost, pin: String) -> Unit)? = null
     var onPairingConfirmed: ((host: ConnectedHost) -> Unit)? = null
     var onPCNotificationReceived: ((notif: NotificationPayload, hostKey: String, hostName: String) -> Unit)? = null
+    var onFileAvailableReceived: ((payload: FileAvailablePayload, hostKey: String) -> Unit)? = null
+    var onNotificationReplyReceived: ((payload: NotificationReplyPayload, hostKey: String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -291,6 +293,30 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.FILE_AVAILABLE -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val filePayload = Gson().fromJson(msg.payload, FileAvailablePayload::class.java)
+                            Log.d(TAG, "[$hostName] Dosya indirme bildirimi alındı: ${filePayload.file_name} (${filePayload.file_size} B)")
+                            onFileAvailableReceived?.invoke(filePayload, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "FILE_AVAILABLE parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.NOTIFICATION_REPLY -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val replyPayload = Gson().fromJson(msg.payload, NotificationReplyPayload::class.java)
+                            Log.d(TAG, "[$hostName] Bildirime yanıt isteği alındı: key=${replyPayload.notification_key}, text=${replyPayload.reply_text}")
+                            onNotificationReplyReceived?.invoke(replyPayload, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "NOTIFICATION_REPLY parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
                 ProtocolEvents.PONG -> {}
             }
         } catch (e: Exception) {
@@ -386,14 +412,16 @@ class SyncWebSocketClient(
         broadcastMessage(payload.toSyncMessage(ProtocolEvents.DEVICE_INFO))
     }
 
-    fun sendNotification(id: String, pkg: String, appName: String, title: String, text: String) {
+    fun sendNotification(id: String, pkg: String, appName: String, title: String, text: String, key: String = "", canReply: Boolean = false) {
         val payload = NotificationPayload(
             id = id,
             package_name = pkg,
             app_name = appName,
             title = title,
             text = text,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            key = key,
+            can_reply = canReply
         )
         // Sadece yetkili bilgisayarlara bildirim gönder
         for (host in hosts.values) {

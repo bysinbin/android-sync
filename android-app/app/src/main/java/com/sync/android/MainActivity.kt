@@ -31,9 +31,11 @@ import com.sync.android.security.PairedHostConfig
 import com.sync.android.service.SyncForegroundService
 
 import android.widget.SeekBar
+import android.net.Uri
 import com.sync.android.model.MediaInfoPayload
 import com.sync.android.service.PhoneController
 import com.sync.android.service.SmsSyncManager
+import com.sync.android.service.FileManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -45,13 +47,28 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabBtnComputers: TextView
     private lateinit var tabBtnMedia: TextView
     private lateinit var tabBtnClipboard: TextView
+    private lateinit var tabBtnFiles: TextView
     private lateinit var tabBtnSettings: TextView
 
     // Tab Panels
     private lateinit var panelComputers: LinearLayout
     private lateinit var panelMedia: LinearLayout
     private lateinit var panelClipboard: LinearLayout
+    private lateinit var panelFiles: LinearLayout
     private lateinit var panelSettings: LinearLayout
+
+    // File Sharing Views
+    private lateinit var btnSelectAndSendFile: Button
+    private lateinit var tvFileTransferStatus: TextView
+    private lateinit var btnOpenDownloadsFolder: Button
+
+    private val filePickerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) {
+            sendFilesToConnectedHosts(uris)
+        }
+    }
 
     // Computers Tab Views
     private lateinit var llComputersContainer: LinearLayout
@@ -179,6 +196,70 @@ class MainActivity : AppCompatActivity() {
         bindServiceCallbacks()
         mainHandler.post(uiRefresher)
         mainHandler.post(mediaTicker)
+
+        handleIncomingShareIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingShareIntent(intent)
+    }
+
+    private fun handleIncomingShareIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        val type = intent.type
+
+        if (Intent.ACTION_SEND == action && type != null) {
+            val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(Intent.EXTRA_STREAM) as? Uri
+            }
+            if (streamUri != null) {
+                switchTab(3)
+                sendFilesToConnectedHosts(listOf(streamUri))
+            }
+        } else if (Intent.ACTION_SEND_MULTIPLE == action && type != null) {
+            val streamUris = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            if (!streamUris.isNullOrEmpty()) {
+                switchTab(3)
+                sendFilesToConnectedHosts(streamUris)
+            }
+        }
+    }
+
+    private fun sendFilesToConnectedHosts(uris: List<Uri>) {
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val hosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+        if (hosts.isEmpty()) {
+            Toast.makeText(this, "⚠️ Dosya göndermek için bağlı ve eşleşmiş bir bilgisayar bulunamadı!", Toast.LENGTH_LONG).show()
+            tvFileTransferStatus.text = "⚠️ Aktarım başarısız: Bağlı ve eşleşmiş bilgisayar yok."
+            return
+        }
+
+        tvFileTransferStatus.text = "⏳ ${uris.size} dosya aktarılıyor..."
+        for (uri in uris) {
+            for (host in hosts) {
+                val serverUrl = "http://${host.ip}:${host.port}"
+                FileManager.uploadFile(this, uri, serverUrl) { success, err ->
+                    runOnUiThread {
+                        if (success) {
+                            tvFileTransferStatus.text = "✅ Dosya başarıyla iletildi (${host.name})"
+                        } else {
+                            tvFileTransferStatus.text = "❌ Aktarım hatası: ${err ?: "Bilinmeyen hata"}"
+                        }
+                    }
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -206,13 +287,20 @@ class MainActivity : AppCompatActivity() {
         tabBtnComputers = findViewById(R.id.tabBtnComputers)
         tabBtnMedia = findViewById(R.id.tabBtnMedia)
         tabBtnClipboard = findViewById(R.id.tabBtnClipboard)
+        tabBtnFiles = findViewById(R.id.tabBtnFiles)
         tabBtnSettings = findViewById(R.id.tabBtnSettings)
 
         // Panels
         panelComputers = findViewById(R.id.panelComputers)
         panelMedia = findViewById(R.id.panelMedia)
         panelClipboard = findViewById(R.id.panelClipboard)
+        panelFiles = findViewById(R.id.panelFiles)
         panelSettings = findViewById(R.id.panelSettings)
+
+        // Files views
+        btnSelectAndSendFile = findViewById(R.id.btnSelectAndSendFile)
+        tvFileTransferStatus = findViewById(R.id.tvFileTransferStatus)
+        btnOpenDownloadsFolder = findViewById(R.id.btnOpenDownloadsFolder)
 
         // Computers panel
         llComputersContainer = findViewById(R.id.llComputersContainer)
@@ -284,7 +372,22 @@ class MainActivity : AppCompatActivity() {
         tabBtnComputers.setOnClickListener { switchTab(0) }
         tabBtnMedia.setOnClickListener { switchTab(1) }
         tabBtnClipboard.setOnClickListener { switchTab(2) }
-        tabBtnSettings.setOnClickListener { switchTab(3) }
+        tabBtnFiles.setOnClickListener { switchTab(3) }
+        tabBtnSettings.setOnClickListener { switchTab(4) }
+
+        // Files Listeners
+        btnSelectAndSendFile.setOnClickListener {
+            filePickerLauncher.launch("*/*")
+        }
+
+        btnOpenDownloadsFolder.setOnClickListener {
+            try {
+                val intent = Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)
+                startActivity(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "İndirilenler klasörü açılamadı: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         // Settings Switches
         swMeshClipboard.setOnCheckedChangeListener { _, isChecked ->
@@ -463,8 +566,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun switchTab(tabIndex: Int) {
-        val tabs = listOf(tabBtnComputers, tabBtnMedia, tabBtnClipboard, tabBtnSettings)
-        val panels = listOf(panelComputers, panelMedia, panelClipboard, panelSettings)
+        val tabs = listOf(tabBtnComputers, tabBtnMedia, tabBtnClipboard, tabBtnFiles, tabBtnSettings)
+        val panels = listOf(panelComputers, panelMedia, panelClipboard, panelFiles, panelSettings)
 
         for (i in tabs.indices) {
             if (i == tabIndex) {

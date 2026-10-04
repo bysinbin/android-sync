@@ -13,7 +13,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Çoklu Cihaz / Mesh (Win + Mac + Tel aynı anda) | ✅ **Var (Özgün)** | ❌ Yok (Yalnızca 1-1) | ⚠️ Kısmi |
 | **Bildirimler** | Telefondan PC/Mac'e Bildirim Akışı | ✅ Tam | ✅ Tam | ✅ Tam |
 | | PC/Mac Bildirimlerinin Telefona Akışı | ✅ **Var (Çift Yönlü)** | ❌ Yok (Yalnızca Tel -> PC) | ❌ Yok |
-| | Bildirime PC'den Doğrudan Yanıt Verme (Inline Reply) | ❌ Eksik | ✅ Var | ✅ Var |
+| | Bildirime PC'den Doğrudan Yanıt Verme (Inline Reply) | ✅ **Var (Tamamlandı)** | ✅ Var | ✅ Var |
 | | Bildirim Aksiyon Butonları (Arşivle, Onayla vb.) | ❌ Eksik | ✅ Var | ✅ Var |
 | | Çift Yönlü Bildirim Kapatma (Dismiss Sync) | ❌ Eksik | ✅ Var | ✅ Var |
 | **Medya & Ses** | Çift Yönlü Bağımsız Medya Takibi & Kontrolü | ✅ **Var (Özgün)** | ❌ Kısıtlı | ❌ Tekil |
@@ -25,7 +25,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Arama Başlatma (DIAL) / Reddetme / Sessize Alma | ✅ Var | ✅ Var | ⚠️ Kısmi |
 | | SMS Geçmişi Görüntüleme & PC'den SMS Gönderme | ✅ Var | ✅ Var | ✅ Var |
 | | Telefon Rehberi (Contacts) Entegrasyonu | ❌ Eksik | ✅ Var | ❌ Yok |
-| **Dosya & Depolama** | Hızlı Kablosuz Dosya Transferi (Share to Device) | ❌ Eksik | ⚠️ Sadece Samsung/Honor | ✅ Tam |
+| **Dosya & Depolama** | Hızlı Kablosuz Dosya Transferi (Share to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ⚠️ Sadece Samsung/Honor | ✅ Tam |
 | | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (SFTP) | ❌ Eksik | ❌ Yok | ✅ Var |
 | | Fotoğraf Galerisi Gezgini (Photos Drag-Drop) | ❌ Eksik | ✅ Var | ❌ Yok |
 | **Ekran & Uygulama** | Telefon Ekranını Yansıtma (Screen Mirroring) | ❌ Eksik | ✅ Var | ❌ Yok |
@@ -33,7 +33,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ❌ Eksik | ❌ Yok | ✅ Var |
 | | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ❌ Eksik | ❌ Yok | ✅ Var |
 | | Sunum Kumandası (Slayt Değiştirici & Pointer) | ❌ Eksik | ❌ Yok | ✅ Var |
-| | Uzaktan Özel Komut Çalıştırma (Run Commands) | ❌ Eksik | ❌ Yok | ✅ Var |
+| | Uzaktan Özel Komut Çalıştırma (Lock, Sleep, Shutdown) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
 | | Biyometrik Kilit Açma (Parmak iziyle PC kilidi) | ❌ Eksik | ❌ Yok | ⚠️ Kısmi |
 | **Pano & Sistem** | Ortak Pano (Düz Metin) | ✅ Var | ✅ Var | ✅ Var |
 | | Ortak Pano (Görsel ve Zengin İçerik) | ❌ Eksik | ✅ Var | ✅ Var |

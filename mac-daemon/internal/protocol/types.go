@@ -20,10 +20,14 @@ const (
 	EventSmsNewMessage   = "sms_new_message"
 	EventAuthRequest     = "auth_request"
 	EventAuthResponse    = "auth_response"
-	EventPairConfirm     = "pair_confirm"
-	EventUnpair          = "unpair"
-	EventPing            = "ping"
-	EventPong            = "pong"
+	EventPairConfirm          = "pair_confirm"
+	EventUnpair               = "unpair"
+	EventFileAvailable        = "file_available"
+	EventFileUploadNotify     = "file_upload_notify"
+	EventNotificationReply    = "notification_reply"
+	EventRemoteAction         = "remote_action"
+	EventPing                 = "ping"
+	EventPong                 = "pong"
 )
 
 // AuthRequestPayload is sent when a connection opens to initiate/check pairing.
@@ -71,6 +75,8 @@ type NotificationPayload struct {
 	Title       string `json:"title"`
 	Text        string `json:"text"`
 	Timestamp   int64  `json:"timestamp"`
+	Key         string `json:"key,omitempty"`
+	CanReply    bool   `json:"can_reply,omitempty"`
 }
 
 // CallStatePayload represents the state of phone calls.
@@ -149,6 +155,40 @@ type SmsSentStatusPayload struct {
 	Body      string `json:"body"`
 	Error     string `json:"error,omitempty"`
 	Timestamp int64  `json:"timestamp"`
+}
+
+// FileAvailablePayload is sent to the phone when a file is ready to be downloaded from Mac.
+type FileAvailablePayload struct {
+	ID          string `json:"id"`
+	FileName    string `json:"file_name"`
+	FileSize    int64  `json:"file_size"`
+	DownloadURL string `json:"download_url"`
+	MimeType    string `json:"mime_type,omitempty"`
+	Sender      string `json:"sender"`
+	Timestamp   int64  `json:"timestamp"`
+}
+
+// FileUploadNotifyPayload is sent when a file is uploaded to Mac.
+type FileUploadNotifyPayload struct {
+	ID        string `json:"id"`
+	FileName  string `json:"file_name"`
+	FileSize  int64  `json:"file_size"`
+	Path      string `json:"path"`
+	Sender    string `json:"sender"`
+	Timestamp int64  `json:"timestamp"`
+}
+
+// NotificationReplyPayload is sent when a user replies to an app notification from Mac.
+type NotificationReplyPayload struct {
+	NotificationKey string `json:"notification_key"`
+	ActionIndex     int    `json:"action_index"`
+	ReplyText       string `json:"reply_text"`
+}
+
+// RemoteActionPayload carries remote control requests (lock, sleep, etc.)
+type RemoteActionPayload struct {
+	Action string `json:"action"` // "LOCK", "SLEEP", "SHUTDOWN", "RESTART"
+	Param  string `json:"param,omitempty"`
 }
 
 // Helper to construct a Message with serialized payload.

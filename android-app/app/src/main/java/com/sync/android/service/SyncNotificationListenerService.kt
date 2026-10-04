@@ -1,23 +1,91 @@
 package com.sync.android.service
 
 import android.app.Notification
+import android.app.RemoteInput
+import android.content.Intent
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
 
 class SyncNotificationListenerService : NotificationListenerService() {
 
-    private val TAG = "NotificationListener"
+    companion object {
+        private const val TAG = "NotificationListener"
+        var instance: SyncNotificationListenerService? = null
+        val cachedNotifications = ConcurrentHashMap<String, StatusBarNotification>()
+
+        fun replyToNotification(key: String, actionIndex: Int, text: String): Boolean {
+            val service = instance ?: return false
+            val sbn = cachedNotifications[key] ?: return false
+            val actions = sbn.notification?.actions ?: return false
+
+            var targetAction: Notification.Action? = null
+            var targetRemoteInput: RemoteInput? = null
+
+            if (actionIndex in actions.indices) {
+                val a = actions[actionIndex]
+                val ri = a.remoteInputs?.firstOrNull()
+                if (ri != null) {
+                    targetAction = a
+                    targetRemoteInput = ri
+                }
+            }
+
+            if (targetAction == null) {
+                // Find first action that has RemoteInput
+                for (a in actions) {
+                    val ri = a.remoteInputs?.firstOrNull()
+                    if (ri != null) {
+                        targetAction = a
+                        targetRemoteInput = ri
+                        break
+                    }
+                }
+            }
+
+            if (targetAction == null || targetRemoteInput == null) {
+                Log.w(TAG, "Cevaplanabilir aksiyon bulunamadı: $key")
+                return false
+            }
+
+            try {
+                val intent = Intent()
+                val bundle = Bundle()
+                bundle.putCharSequence(targetRemoteInput.resultKey, text)
+                RemoteInput.addResultsToIntent(targetAction.remoteInputs, intent, bundle)
+                targetAction.actionIntent.send(service, 0, intent)
+                Log.d(TAG, "Bildirime başarıyla cevap gönderildi ($key): $text")
+                return true
+            } catch (e: Exception) {
+                Log.e(TAG, "Cevap gönderme hatası ($key): ${e.message}", e)
+                return false
+            }
+        }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (instance == this) instance = null
+        cachedNotifications.clear()
+    }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         if (sbn == null) return
 
         val pkgName = sbn.packageName
-        // Kendi uygulamamızın bildirimlerini filtrele
         if (pkgName == packageName) {
             return
         }
+
+        cachedNotifications[sbn.key] = sbn
 
         val notification = sbn.notification ?: return
         val extras = notification.extras ?: return
@@ -39,13 +107,11 @@ class SyncNotificationListenerService : NotificationListenerService() {
                          aTitle.contains("cevapla") || aTitle.contains("answer") || aTitle.contains("reddet") || aTitle.contains("decline")
                      } == true
 
-        // Sistem servislerinin kalıcı (ongoing) bildirimlerini atla AMA çağrıları ASLA atlama!
         val isOngoing = (notification.flags and Notification.FLAG_ONGOING_EVENT) != 0
         if (isOngoing && !isCall) {
             return
         }
 
-        // Eğer sistem arayüzü bildirimi ise ve arama değilse atla
         if (pkgName == "android" && !isCall) {
             return
         }
@@ -60,9 +126,13 @@ class SyncNotificationListenerService : NotificationListenerService() {
             pkgName
         }
 
-        Log.d(TAG, "Yeni Bildirim (Arama: $isCall): [$appName] $title -> $text")
+        // Check if notification can be replied inline
+        val canReply = notification.actions?.any { action ->
+            action.remoteInputs != null && action.remoteInputs.isNotEmpty()
+        } == true
 
-        // WebSocket üzerinden Mac'e ilet
+        Log.d(TAG, "Yeni Bildirim (Arama: $isCall, Yanıtlanabilir: $canReply): [$appName] $title -> $text")
+
         val ws = SyncForegroundService.instance?.webSocketClient
         if (ws?.isConnected == true) {
             if (isCall) {
@@ -76,7 +146,9 @@ class SyncNotificationListenerService : NotificationListenerService() {
                 pkg = pkgName,
                 appName = if (isCall) "📞 $appName (Gelen Arama)" else appName,
                 title = title,
-                text = text
+                text = text,
+                key = sbn.key,
+                canReply = canReply
             )
         }
     }
@@ -84,6 +156,8 @@ class SyncNotificationListenerService : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
         if (sbn == null) return
+        cachedNotifications.remove(sbn.key)
+
         val category = sbn.notification?.category ?: ""
         val pkgName = sbn.packageName
         val isCall = category == Notification.CATEGORY_CALL ||
@@ -99,3 +173,4 @@ class SyncNotificationListenerService : NotificationListenerService() {
         }
     }
 }
+
