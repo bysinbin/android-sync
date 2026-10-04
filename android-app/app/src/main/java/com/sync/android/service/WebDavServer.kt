@@ -85,8 +85,7 @@ class WebDavServer(private val context: Context, val port: Int = 8088) {
             val input = socket.getInputStream()
             val output = socket.getOutputStream()
 
-            val reader = BufferedReader(InputStreamReader(input))
-            val requestLine = reader.readLine() ?: return
+            val requestLine = readHeaderLine(input) ?: return
             val parts = requestLine.split(" ")
             if (parts.size < 2) return
 
@@ -98,13 +97,13 @@ class WebDavServer(private val context: Context, val port: Int = 8088) {
             val path = URLDecoder.decode(rawPath, "UTF-8")
 
             val headers = mutableMapOf<String, String>()
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
+            while (true) {
+                val line = readHeaderLine(input)
                 if (line.isNullOrEmpty()) break
-                val colonIdx = line!!.indexOf(":")
+                val colonIdx = line.indexOf(":")
                 if (colonIdx > 0) {
-                    val k = line!!.substring(0, colonIdx).trim().lowercase()
-                    val v = line!!.substring(colonIdx + 1).trim()
+                    val k = line.substring(0, colonIdx).trim().lowercase()
+                    val v = line.substring(colonIdx + 1).trim()
                     headers[k] = v
                 }
             }
@@ -128,6 +127,23 @@ class WebDavServer(private val context: Context, val port: Int = 8088) {
         } finally {
             try { socket.close() } catch (_: Exception) {}
         }
+    }
+
+    private fun readHeaderLine(input: InputStream): String? {
+        val sb = StringBuilder()
+        var b: Int
+        var readAny = false
+        while (input.read().also { b = it } != -1) {
+            readAny = true
+            if (b == '\n'.code) {
+                break
+            }
+            if (b != '\r'.code) {
+                sb.append(b.toChar())
+            }
+        }
+        if (!readAny && sb.isEmpty()) return null
+        return sb.toString()
     }
 
     private fun resolveFile(path: String): File {

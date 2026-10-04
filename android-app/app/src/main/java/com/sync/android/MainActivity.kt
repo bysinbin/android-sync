@@ -55,11 +55,23 @@ class MainActivity : AppCompatActivity() {
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
-            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
-            val mediaProjection = projectionManager.getMediaProjection(result.resultCode, result.data!!)
-            SyncForegroundService.instance?.screenMirrorManager?.setMediaProjection(mediaProjection)
-            SyncForegroundService.instance?.screenMirrorManager?.startMirroring()
-            Toast.makeText(this, "✅ Ekran Yansıtma Başlatıldı", Toast.LENGTH_SHORT).show()
+            try {
+                // Android 14+ Zorunluluğu: getMediaProjection öncesinde servis type mediaProjection olarak güncellenmelidir
+                SyncForegroundService.instance?.updateForegroundTypeForScreenMirror(true)
+
+                val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+                val mediaProjection = projectionManager.getMediaProjection(result.resultCode, result.data!!)
+                if (mediaProjection != null) {
+                    SyncForegroundService.instance?.screenMirrorManager?.setMediaProjection(mediaProjection)
+                    SyncForegroundService.instance?.screenMirrorManager?.startMirroring()
+                    Toast.makeText(this, "✅ Ekran Yansıtma Başlatıldı", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "❌ Ekran Yansıtma İzni Alınamadı", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "getMediaProjection başlatma hatası: ${e.message}", e)
+                Toast.makeText(this, "Ekran Yansıtma Hatası: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         } else {
             Toast.makeText(this, "❌ Ekran Yansıtma İzni Reddedildi", Toast.LENGTH_SHORT).show()
         }

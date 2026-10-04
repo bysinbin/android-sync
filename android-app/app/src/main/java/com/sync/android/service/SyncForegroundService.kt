@@ -141,6 +141,27 @@ class SyncForegroundService : Service() {
         return START_STICKY
     }
 
+    fun updateForegroundTypeForScreenMirror(enabled: Boolean) {
+        val notification = createServiceNotification(connectedServerName)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            if (enabled) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            }
+            try {
+                startForeground(NOTIF_ID, notification, types)
+                Log.d(TAG, "Foreground service type güncellendi: enabled=$enabled, types=$types")
+            } catch (e: Exception) {
+                Log.e(TAG, "startForeground güncelleme hatası: ${e.message}")
+            }
+        } else {
+            startForeground(NOTIF_ID, notification)
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -342,7 +363,13 @@ class SyncForegroundService : Service() {
             }
             onScreenMirrorRequested = { payload, hostKey ->
                 if (payload.action == "START") {
-                    screenMirrorManager.startMirroring(payload.quality)
+                    if (screenMirrorManager.isMediaProjectionReady()) {
+                        screenMirrorManager.startMirroring(payload.quality)
+                    } else {
+                        MainActivity.instance?.runOnUiThread {
+                            MainActivity.instance?.requestScreenCapture()
+                        }
+                    }
                 } else {
                     screenMirrorManager.stopMirroring()
                 }

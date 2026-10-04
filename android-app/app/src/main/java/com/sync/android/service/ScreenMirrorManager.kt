@@ -61,6 +61,8 @@ class ScreenMirrorManager(private val context: Context) {
         this.mediaProjection = mp
     }
 
+    fun isMediaProjectionReady(): Boolean = mediaProjection != null
+
     fun startMirroring(quality: Int = 65) {
         if (isMirroring.get()) return
         val mp = mediaProjection
@@ -83,6 +85,18 @@ class ScreenMirrorManager(private val context: Context) {
 
             captureThread = HandlerThread("ScreenCaptureThread").apply { start() }
             captureHandler = Handler(captureThread!!.looper)
+
+            // Android 14+ Zorunluluğu: VirtualDisplay oluşturulmadan önce Callback kaydedilmelidir
+            try {
+                mp.registerCallback(object : MediaProjection.Callback() {
+                    override fun onStop() {
+                        Log.d(TAG, "MediaProjection sistem tarafından sonlandırıldı.")
+                        stopMirroring()
+                    }
+                }, captureHandler)
+            } catch (e: Exception) {
+                Log.w(TAG, "MediaProjection.registerCallback uyarısı: ${e.message}")
+            }
 
             imageReader = ImageReader.newInstance(screenWidth, screenHeight, PixelFormat.RGBA_8888, 3)
             virtualDisplay = mp.createVirtualDisplay(
@@ -170,6 +184,7 @@ class ScreenMirrorManager(private val context: Context) {
             captureThread = null
             captureHandler = null
             stopMjpegServer()
+            SyncForegroundService.instance?.updateForegroundTypeForScreenMirror(false)
             Log.d(TAG, "Ekran yansıtma durduruldu.")
         } catch (e: Exception) {
             Log.e(TAG, "Ekran yansıtma durdurma hatası: ${e.message}")
