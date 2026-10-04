@@ -40,6 +40,28 @@ type DaemonConfig struct {
 	PairedAt   int64  `json:"paired_at"`
 }
 
+type ClientDevice struct {
+	ID           string                              `json:"id"`
+	Name         string                              `json:"name"`
+	Model        string                              `json:"model"`
+	IP           string                              `json:"ip"`
+	RemoteAddr   string                              `json:"remote_addr"`
+	BatteryLevel int                                 `json:"battery_level"`
+	IsCharging   bool                                `json:"is_charging"`
+	ConnectedAt  int64                               `json:"connected_at"`
+	LastSeen     int64                               `json:"last_seen"`
+	Media        *protocol.MediaInfoPayload          `json:"media,omitempty"`
+	CallState    *protocol.CallStatePayload          `json:"call_state,omitempty"`
+	SmsList      []protocol.SmsMessage               `json:"sms_list,omitempty"`
+	Contacts     []protocol.ContactItem              `json:"contacts,omitempty"`
+	Photos       []protocol.PhotoItem                `json:"photos,omitempty"`
+	Apps         []protocol.InstalledAppInfo         `json:"apps,omitempty"`
+	LastFrame    *protocol.ScreenMirrorFramePayload  `json:"-"`
+	Storage      *protocol.StorageMountStatusPayload `json:"storage,omitempty"`
+	Hotspot      *protocol.HotspotStatusPayload      `json:"hotspot,omitempty"`
+	conn         *websocket.Conn
+}
+
 type SyncServer struct {
 	port            int
 	serverName      string
@@ -53,6 +75,9 @@ type SyncServer struct {
 	trayManager     *windows.TrayManager
 	clientsMu       sync.RWMutex
 	clients         map[*websocket.Conn]bool
+	devicesMu       sync.RWMutex
+	devices         map[string]*ClientDevice
+	connToDevID     map[*websocket.Conn]string
 	lastDeviceInfo  *protocol.DeviceInfoPayload
 	lastPCMedia     *protocol.MediaInfoPayload
 	lastPhoneMedia  *protocol.MediaInfoPayload
@@ -84,12 +109,14 @@ type SyncServer struct {
 }
 
 type TransferredFile struct {
-	ID        string `json:"id"`
-	FileName  string `json:"file_name"`
-	FileSize  int64  `json:"file_size"`
-	Path      string `json:"path"`
-	Direction string `json:"direction"` // "incoming" or "outgoing"
-	Timestamp int64  `json:"timestamp"`
+	ID         string `json:"id"`
+	FileName   string `json:"file_name"`
+	FileSize   int64  `json:"file_size"`
+	Path       string `json:"path"`
+	Direction  string `json:"direction"` // "incoming" or "outgoing"
+	Timestamp  int64  `json:"timestamp"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 func getDownloadsDir() string {
@@ -146,16 +173,18 @@ func NewSyncServer(port int, serverName string, clipManager *windows.ClipboardMa
 	cfg.ServerName = serverName
 
 	s := &SyncServer{
-		port:          port,
-		serverName:    serverName,
-		machineID:     cfg.MachineID,
-		pairingPIN:    generateNewPIN(),
-		isPaired:      cfg.AuthToken != "",
-		configPath:    cfgPath,
-		config:        cfg,
-		clipManager:   clipManager,
-		trayManager:   trayManager,
+		port:             port,
+		serverName:       serverName,
+		machineID:        cfg.MachineID,
+		pairingPIN:       generateNewPIN(),
+		isPaired:         cfg.AuthToken != "",
+		configPath:       cfgPath,
+		config:           cfg,
+		clipManager:      clipManager,
+		trayManager:      trayManager,
 		clients:          make(map[*websocket.Conn]bool),
+		devices:          make(map[string]*ClientDevice),
+		connToDevID:      make(map[*websocket.Conn]string),
 		notifications:    make([]protocol.NotificationPayload, 0, 50),
 		smsMessages:      make([]protocol.SmsMessage, 0, 100),
 		transferredFiles: make([]TransferredFile, 0, 50),
@@ -166,6 +195,91 @@ func NewSyncServer(port int, serverName string, clipManager *windows.ClipboardMa
 	}
 	s.saveConfig()
 	return s
+}
+
+func (s *SyncServer) registerDevice(conn *websocket.Conn) *ClientDevice {
+	host, _, err := net.SplitHostPort(conn.RemoteAddr().String())
+	if err != nil || host == "" {
+		host = "client"
+	}
+	devID := fmt.Sprintf("dev_%s", strings.ReplaceAll(host, ".", "_"))
+
+	s.devicesMu.Lock()
+	defer s.devicesMu.Unlock()
+
+	if existing, exists := s.devices[devID]; exists && existing.conn != conn {
+		_, port, _ := net.SplitHostPort(conn.RemoteAddr().String())
+		devID = fmt.Sprintf("%s_%s", devID, port)
+	}
+
+	dev := &ClientDevice{
+		ID:           devID,
+		Name:         "Android (" + host + ")",
+		Model:        "Android",
+		IP:           host,
+		RemoteAddr:   conn.RemoteAddr().String(),
+		BatteryLevel: 100,
+		ConnectedAt:  time.Now().UnixMilli(),
+		LastSeen:     time.Now().UnixMilli(),
+		SmsList:      make([]protocol.SmsMessage, 0),
+		Contacts:     make([]protocol.ContactItem, 0),
+		Photos:       make([]protocol.PhotoItem, 0),
+		Apps:         make([]protocol.InstalledAppInfo, 0),
+		conn:         conn,
+	}
+	s.devices[devID] = dev
+	s.connToDevID[conn] = devID
+	return dev
+}
+
+func (s *SyncServer) unregisterDevice(conn *websocket.Conn) {
+	s.devicesMu.Lock()
+	defer s.devicesMu.Unlock()
+	if devID, ok := s.connToDevID[conn]; ok {
+		delete(s.devices, devID)
+		delete(s.connToDevID, conn)
+	}
+}
+
+func (s *SyncServer) getDevice(id string) *ClientDevice {
+	s.devicesMu.RLock()
+	defer s.devicesMu.RUnlock()
+	if id != "" && id != "all" {
+		if d, ok := s.devices[id]; ok {
+			return d
+		}
+	}
+	for _, d := range s.devices {
+		return d
+	}
+	return nil
+}
+
+func (s *SyncServer) getDeviceList() []*ClientDevice {
+	s.devicesMu.RLock()
+	defer s.devicesMu.RUnlock()
+	list := make([]*ClientDevice, 0, len(s.devices))
+	for _, d := range s.devices {
+		list = append(list, d)
+	}
+	return list
+}
+
+func (s *SyncServer) SendToDevice(deviceID string, msg *protocol.Message) {
+	if deviceID == "" || deviceID == "all" {
+		s.Broadcast(msg)
+		return
+	}
+	s.devicesMu.RLock()
+	dev, ok := s.devices[deviceID]
+	s.devicesMu.RUnlock()
+	if ok && dev.conn != nil {
+		if err := dev.conn.WriteJSON(msg); err != nil {
+			log.Printf("[Server] SendToDevice (%s) hatası: %v", deviceID, err)
+		}
+		return
+	}
+	s.Broadcast(msg)
 }
 
 func (s *SyncServer) saveConfig() {
@@ -355,7 +469,20 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		statusResp["call_audio_active"] = s.isCallAudioActive
 		s.callAudioMu.RUnlock()
 
+		statusResp["devices"] = s.getDeviceList()
+
 		_ = json.NewEncoder(w).Encode(statusResp)
+	})
+
+	// Connected Devices API
+	mux.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
+		devList := s.getDeviceList()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"devices": devList,
+			"count":   len(devList),
+		})
 	})
 
 	// Pair Reset API
@@ -370,6 +497,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Call Action API (Answer, Reject, Hangup, Dial, Speaker, Mute)
 	mux.HandleFunc("/call/action", func(w http.ResponseWriter, r *http.Request) {
+		deviceID := r.URL.Query().Get("device_id")
 		action := r.URL.Query().Get("action")
 		number := r.URL.Query().Get("number")
 		valStr := r.URL.Query().Get("value")
@@ -384,8 +512,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			numPtr = &number
 		}
 
-		log.Printf("[Çağrı] Komut iletiliyor: %s (Numara: %s)", action, number)
-		s.SendCallAction(action, numPtr, valPtr)
+		log.Printf("[Çağrı] Komut iletiliyor (Cihaz: %s): %s (Numara: %s)", deviceID, action, number)
+		s.SendCallActionToDevice(deviceID, action, numPtr, valPtr)
 
 		if action == "ANSWER" {
 			s.callMu.Lock()
@@ -409,10 +537,21 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// SMS List API
 	mux.HandleFunc("/sms/list", func(w http.ResponseWriter, r *http.Request) {
-		s.smsMu.RLock()
-		msgsCopy := make([]protocol.SmsMessage, len(s.smsMessages))
-		copy(msgsCopy, s.smsMessages)
-		s.smsMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var msgsCopy []protocol.SmsMessage
+		if deviceID != "" && deviceID != "all" {
+			if dev := s.getDevice(deviceID); dev != nil {
+				s.devicesMu.RLock()
+				msgsCopy = make([]protocol.SmsMessage, len(dev.SmsList))
+				copy(msgsCopy, dev.SmsList)
+				s.devicesMu.RUnlock()
+			}
+		} else {
+			s.smsMu.RLock()
+			msgsCopy = make([]protocol.SmsMessage, len(s.smsMessages))
+			copy(msgsCopy, s.smsMessages)
+			s.smsMu.RUnlock()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -423,7 +562,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// SMS Sync Request API
 	mux.HandleFunc("/sms/sync", func(w http.ResponseWriter, r *http.Request) {
-		s.RequestSmsSync()
+		deviceID := r.URL.Query().Get("device_id")
+		s.RequestSmsSyncFromDevice(deviceID)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "status": "sync_requested"})
 	})
@@ -432,6 +572,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/sms/send", func(w http.ResponseWriter, r *http.Request) {
 		recipient := r.URL.Query().Get("recipient")
 		body := r.URL.Query().Get("body")
+		deviceID := r.URL.Query().Get("device_id")
 
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
@@ -441,6 +582,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			if rBody := r.FormValue("body"); rBody != "" {
 				body = rBody
 			}
+			if rDev := r.FormValue("device_id"); rDev != "" {
+				deviceID = rDev
+			}
 		}
 
 		if recipient == "" || body == "" {
@@ -448,8 +592,13 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			return
 		}
 
-		log.Printf("[SMS] Gönderiliyor: -> %s: %s", recipient, body)
-		s.SendSms(recipient, body)
+		log.Printf("[SMS] Gönderiliyor (%s): -> %s: %s", deviceID, recipient, body)
+		s.SendSmsToDevice(deviceID, recipient, body)
+
+		devName := ""
+		if dev := s.getDevice(deviceID); dev != nil {
+			devName = dev.Name
+		}
 
 		// Optimistic add to local SMS cache
 		newMsg := protocol.SmsMessage{
@@ -460,10 +609,20 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			Timestamp:  time.Now().UnixMilli(),
 			IsIncoming: false,
 			Read:       true,
+			DeviceID:   deviceID,
+			DeviceName: devName,
 		}
 		s.smsMu.Lock()
 		s.smsMessages = append([]protocol.SmsMessage{newMsg}, s.smsMessages...)
 		s.smsMu.Unlock()
+
+		if deviceID != "" {
+			s.devicesMu.Lock()
+			if dev := s.devices[deviceID]; dev != nil {
+				dev.SmsList = append([]protocol.SmsMessage{newMsg}, dev.SmsList...)
+			}
+			s.devicesMu.Unlock()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "recipient": recipient})
@@ -471,6 +630,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Phone command endpoint
 	mux.HandleFunc("/phone/command", func(w http.ResponseWriter, r *http.Request) {
+		deviceID := r.URL.Query().Get("device_id")
 		action := r.URL.Query().Get("action")
 		if action == "" {
 			http.Error(w, "missing action", http.StatusBadRequest)
@@ -481,8 +641,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		if pctStr != "" {
 			_, _ = fmt.Sscanf(pctStr, "%f", &pct)
 		}
-		log.Printf("[Server] Telefondan işlem istendi: %s (Percent: %.1f)", action, pct)
-		s.SendPhoneCommand(action, pct)
+		log.Printf("[Server] Telefondan işlem istendi (%s): %s (Percent: %.1f)", deviceID, action, pct)
+		s.SendPhoneCommandToDevice(deviceID, action, pct)
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprintf(w, "OK\n")
 	})
@@ -512,11 +672,15 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Send clipboard text to phone
 	mux.HandleFunc("/clipboard/send", func(w http.ResponseWriter, r *http.Request) {
+		deviceID := r.URL.Query().Get("device_id")
 		text := r.URL.Query().Get("text")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if pText := r.FormValue("text"); pText != "" {
 				text = pText
+			}
+			if pDev := r.FormValue("device_id"); pDev != "" {
+				deviceID = pDev
 			}
 		}
 		if text != "" {
@@ -525,8 +689,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 				Text:      text,
 				Timestamp: time.Now().UnixMilli(),
 			})
-			s.Broadcast(msg)
-			log.Printf("[Pano] Web arayüzünden panoya ve telefona iletildi (%d bayt)", len(text))
+			s.SendToDevice(deviceID, msg)
+			log.Printf("[Pano] Web arayüzünden panoya ve telefona iletildi (%s, %d bayt)", deviceID, len(text))
 		}
 		w.Header().Set("Content-Type", "text/plain")
 		fmt.Fprintf(w, "OK\n")
@@ -616,6 +780,13 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			return
 		}
 
+		deviceID := r.FormValue("device_id")
+		targetDev := s.getDevice(deviceID)
+		devName := ""
+		if targetDev != nil {
+			devName = targetDev.Name
+		}
+
 		files := r.MultipartForm.File["file"]
 		if len(files) == 0 {
 			http.Error(w, "Dosya belirtilmedi", http.StatusBadRequest)
@@ -647,12 +818,14 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 			if err == nil {
 				fInfo := TransferredFile{
-					ID:        fileID,
-					FileName:  cleanName,
-					FileSize:  written,
-					Path:      dstPath,
-					Direction: "outgoing",
-					Timestamp: time.Now().UnixMilli(),
+					ID:         fileID,
+					FileName:   cleanName,
+					FileSize:   written,
+					Path:       dstPath,
+					Direction:  "outgoing",
+					Timestamp:  time.Now().UnixMilli(),
+					DeviceID:   deviceID,
+					DeviceName: devName,
 				}
 				s.filesMu.Lock()
 				s.transferredFiles = append([]TransferredFile{fInfo}, s.transferredFiles...)
@@ -660,19 +833,22 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 				dlURL := fmt.Sprintf("http://%s:%d/file/download/%s/%s", getLocalIP(), s.port, fileID, url.PathEscape(cleanName))
 				p := protocol.FileAvailablePayload{
-					ID:          fileID,
-					FileName:    cleanName,
-					FileSize:    written,
-					DownloadURL: dlURL,
-					MimeType:    fh.Header.Get("Content-Type"),
-					Sender:      s.serverName,
-					Timestamp:   time.Now().UnixMilli(),
+					ID:             fileID,
+					FileName:       cleanName,
+					FileSize:       written,
+					DownloadURL:    dlURL,
+					MimeType:       fh.Header.Get("Content-Type"),
+					Sender:         s.serverName,
+					Timestamp:      time.Now().UnixMilli(),
+					TargetDeviceID: deviceID,
+					DeviceID:       deviceID,
+					DeviceName:     devName,
 				}
 				notifiedList = append(notifiedList, p)
 
 				msg, _ := protocol.NewMessage(protocol.EventFileAvailable, p)
-				s.Broadcast(msg)
-				log.Printf("[Dosya] PC'den telefona dosya hazırlandı ve sinyal gönderildi: %s (URL: %s)", cleanName, dlURL)
+				s.SendToDevice(deviceID, msg)
+				log.Printf("[Dosya] PC'den telefona (%s) dosya hazırlandı ve sinyal gönderildi: %s (URL: %s)", devName, cleanName, dlURL)
 			}
 		}
 
@@ -735,9 +911,15 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Transferred Files List API
 	mux.HandleFunc("/file/list", func(w http.ResponseWriter, r *http.Request) {
+		deviceID := r.URL.Query().Get("device_id")
 		s.filesMu.RLock()
-		list := make([]TransferredFile, len(s.transferredFiles))
-		copy(list, s.transferredFiles)
+		list := make([]TransferredFile, 0, len(s.transferredFiles))
+		for _, f := range s.transferredFiles {
+			if deviceID != "" && deviceID != "all" && f.DeviceID != "" && f.DeviceID != deviceID {
+				continue
+			}
+			list = append(list, f)
+		}
 		s.filesMu.RUnlock()
 
 		w.Header().Set("Content-Type", "application/json")
@@ -752,6 +934,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/notification/reply", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		text := r.URL.Query().Get("text")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if k := r.FormValue("key"); k != "" {
@@ -760,6 +943,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			if t := r.FormValue("text"); t != "" {
 				text = t
 			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
+			}
 		}
 
 		if key == "" || text == "" {
@@ -767,7 +953,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			return
 		}
 
-		s.SendNotificationReply(key, 0, text)
+		s.SendNotificationReplyToDevice(deviceID, key, 0, text)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key})
 	})
@@ -776,6 +962,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/notification/action", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		idxStr := r.URL.Query().Get("index")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if k := r.FormValue("key"); k != "" {
@@ -783,6 +970,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			}
 			if idx := r.FormValue("index"); idx != "" {
 				idxStr = idx
+			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
 			}
 		}
 
@@ -792,7 +982,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		}
 
 		actionIndex, _ := strconv.Atoi(idxStr)
-		s.SendNotificationAction(key, actionIndex)
+		s.SendNotificationActionToDevice(deviceID, key, actionIndex)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key, "index": actionIndex})
 	})
@@ -801,6 +991,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/notification/dismiss", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("key")
 		id := r.URL.Query().Get("id")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if k := r.FormValue("key"); k != "" {
@@ -808,6 +999,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			}
 			if i := r.FormValue("id"); i != "" {
 				id = i
+			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
 			}
 		}
 
@@ -817,7 +1011,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		}
 
 		s.removeNotification(key, id)
-		s.SendNotificationDismiss(key, id)
+		s.SendNotificationDismissToDevice(deviceID, key, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key, "id": id})
 	})
@@ -843,10 +1037,20 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Contacts List API
 	mux.HandleFunc("/contacts", func(w http.ResponseWriter, r *http.Request) {
-		s.contactsMu.RLock()
-		contactsCopy := make([]protocol.ContactItem, len(s.contacts))
-		copy(contactsCopy, s.contacts)
-		s.contactsMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var contactsCopy []protocol.ContactItem
+		if deviceID != "" && deviceID != "all" {
+			if dev := s.getDevice(deviceID); dev != nil && len(dev.Contacts) > 0 {
+				contactsCopy = make([]protocol.ContactItem, len(dev.Contacts))
+				copy(contactsCopy, dev.Contacts)
+			}
+		}
+		if contactsCopy == nil {
+			s.contactsMu.RLock()
+			contactsCopy = make([]protocol.ContactItem, len(s.contacts))
+			copy(contactsCopy, s.contacts)
+			s.contactsMu.RUnlock()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -857,7 +1061,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Contacts Refresh API (Requests sync from phone)
 	mux.HandleFunc("/contacts/refresh", func(w http.ResponseWriter, r *http.Request) {
-		s.RequestContactsSync()
+		deviceID := r.URL.Query().Get("device_id")
+		s.RequestContactsSyncFromDevice(deviceID)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
@@ -865,10 +1070,14 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Send URL / Tab to Phone
 	mux.HandleFunc("/url/send_to_phone", func(w http.ResponseWriter, r *http.Request) {
 		rawURL := r.URL.Query().Get("url")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if u := r.FormValue("url"); u != "" {
 				rawURL = u
+			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
 			}
 		}
 		rawURL = strings.TrimSpace(rawURL)
@@ -876,7 +1085,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			http.Error(w, "url required", http.StatusBadRequest)
 			return
 		}
-		s.SendOpenUrlToPhone(rawURL)
+		s.SendOpenUrlToDevice(deviceID, rawURL)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "url": rawURL})
 	})
@@ -902,10 +1111,20 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Photos List API
 	mux.HandleFunc("/photos", func(w http.ResponseWriter, r *http.Request) {
-		s.photosMu.RLock()
-		photosCopy := make([]protocol.PhotoItem, len(s.photos))
-		copy(photosCopy, s.photos)
-		s.photosMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var photosCopy []protocol.PhotoItem
+		if deviceID != "" && deviceID != "all" {
+			if dev := s.getDevice(deviceID); dev != nil && len(dev.Photos) > 0 {
+				photosCopy = make([]protocol.PhotoItem, len(dev.Photos))
+				copy(photosCopy, dev.Photos)
+			}
+		}
+		if photosCopy == nil {
+			s.photosMu.RLock()
+			photosCopy = make([]protocol.PhotoItem, len(s.photos))
+			copy(photosCopy, s.photos)
+			s.photosMu.RUnlock()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -916,7 +1135,8 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// Photos Refresh API (Requests photos from phone)
 	mux.HandleFunc("/photos/refresh", func(w http.ResponseWriter, r *http.Request) {
-		s.RequestPhotosSync()
+		deviceID := r.URL.Query().Get("device_id")
+		s.RequestPhotosSyncFromDevice(deviceID)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
@@ -924,16 +1144,21 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Photos Download API (Requests full photo from phone to be uploaded to PC)
 	mux.HandleFunc("/photos/download", func(w http.ResponseWriter, r *http.Request) {
 		idStr := r.URL.Query().Get("id")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if i := r.FormValue("id"); i != "" {
 				idStr = i
+			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
 			}
 		}
 		if idStr == "" {
 			http.Error(w, "photo id required", http.StatusBadRequest)
 			return
 		}
+
 		var id int64
 		_, _ = fmt.Sscanf(idStr, "%d", &id)
 		if id <= 0 {
@@ -941,7 +1166,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			return
 		}
 
-		s.RequestPhotoDownload(id)
+		s.RequestPhotoDownloadFromDevice(deviceID, id)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "id": id})
 	})
@@ -956,8 +1181,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		if qStr := r.URL.Query().Get("quality"); qStr != "" {
 			_, _ = fmt.Sscanf(qStr, "%d", &quality)
 		}
-		log.Printf("[Ekran Yansıtma] Komut gönderiliyor: %s (kalite=%d)", action, quality)
-		s.SendScreenMirrorRequest(action, quality)
+		deviceID := r.URL.Query().Get("device_id")
+		log.Printf("[Ekran Yansıtma] Komut gönderiliyor: %s (kalite=%d, dev=%s)", action, quality, deviceID)
+		s.SendScreenMirrorRequestToDevice(deviceID, action, quality)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
@@ -965,6 +1191,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Screen Touch Input API
 	mux.HandleFunc("/screen/touch", func(w http.ResponseWriter, r *http.Request) {
 		action := r.URL.Query().Get("action")
+		deviceID := r.URL.Query().Get("device_id")
 		var x, y float32
 		if xStr := r.URL.Query().Get("x"); xStr != "" {
 			var x64 float64
@@ -976,16 +1203,25 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			_, _ = fmt.Sscanf(yStr, "%f", &y64)
 			y = float32(y64)
 		}
-		s.SendScreenTouch(action, x, y)
+		s.SendScreenTouchToDevice(deviceID, action, x, y)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
 
 	// Screen Mirror Frame API (fetch latest frame as JSON or raw JPEG)
 	mux.HandleFunc("/screen/frame", func(w http.ResponseWriter, r *http.Request) {
-		s.mirrorMu.RLock()
-		frame := s.lastMirrorFrame
-		s.mirrorMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var frame *protocol.ScreenMirrorFramePayload
+		if deviceID != "" && deviceID != "all" {
+			if dev := s.getDevice(deviceID); dev != nil {
+				frame = dev.LastFrame
+			}
+		}
+		if frame == nil {
+			s.mirrorMu.RLock()
+			frame = s.lastMirrorFrame
+			s.mirrorMu.RUnlock()
+		}
 		if frame == nil || frame.Data == "" {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"available": false})
@@ -1015,6 +1251,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	mux.HandleFunc("/storage/mount", func(w http.ResponseWriter, r *http.Request) {
 		action := strings.ToUpper(r.URL.Query().Get("action"))
 		drive := r.URL.Query().Get("drive")
+		deviceID := r.URL.Query().Get("device_id")
 		if drive == "" {
 			drive = "Z:"
 		}
@@ -1025,32 +1262,37 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 		if action == "UNMOUNT" || action == "STOP" {
 			_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
-			s.SendStorageMountRequest("STOP")
+			s.SendStorageMountRequestToDevice(deviceID, "STOP")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false, "drive": drive})
 			return
 		}
 
-		s.SendStorageMountRequest("START")
+		s.SendStorageMountRequestToDevice(deviceID, "START")
 
 		phoneIP := ""
-		s.clientsMu.RLock()
-		for conn := range s.clients {
-			addr := conn.RemoteAddr().String()
-			host, _, _ := net.SplitHostPort(addr)
-			if host != "" && host != "127.0.0.1" {
-				phoneIP = host
-				break
-			}
+		if dev := s.getDevice(deviceID); dev != nil && dev.IP != "" {
+			phoneIP = dev.IP
 		}
-		s.clientsMu.RUnlock()
+		if phoneIP == "" {
+			s.clientsMu.RLock()
+			for conn := range s.clients {
+				addr := conn.RemoteAddr().String()
+				host, _, _ := net.SplitHostPort(addr)
+				if host != "" && host != "127.0.0.1" {
+					phoneIP = host
+					break
+				}
+			}
+			s.clientsMu.RUnlock()
+		}
 
 		if phoneIP == "" {
 			phoneIP = "192.168.50.118"
 		}
 
 		mountURL := fmt.Sprintf("http://%s:8088/", phoneIP)
-		log.Printf("[WebDAV] Windows %s sürücüsü olarak bağlanıyor: %s", drive, mountURL)
+		log.Printf("[WebDAV] Windows %s sürücüsü olarak bağlanıyor: %s (dev=%s)", drive, mountURL, deviceID)
 
 		_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
 		cmd := exec.Command("net", "use", drive, mountURL, "/persistent:no")
@@ -1072,6 +1314,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Storage Unmount API
 	mux.HandleFunc("/storage/unmount", func(w http.ResponseWriter, r *http.Request) {
 		drive := r.URL.Query().Get("drive")
+		deviceID := r.URL.Query().Get("device_id")
 		if drive == "" {
 			drive = "Z:"
 		}
@@ -1080,7 +1323,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			drive = drive + ":"
 		}
 		_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
-		s.SendStorageMountRequest("STOP")
+		s.SendStorageMountRequestToDevice(deviceID, "STOP")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false, "drive": drive})
 	})
@@ -1088,30 +1331,42 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Hotspot Toggle API
 	mux.HandleFunc("/hotspot/toggle", func(w http.ResponseWriter, r *http.Request) {
 		action := strings.ToUpper(r.URL.Query().Get("action"))
+		deviceID := r.URL.Query().Get("device_id")
 		if action == "" {
-			s.hotspotMu.RLock()
-			st := s.lastHotspotStatus
-			s.hotspotMu.RUnlock()
+			var st *protocol.HotspotStatusPayload
+			if dev := s.getDevice(deviceID); dev != nil && dev.Hotspot != nil {
+				st = dev.Hotspot
+			} else {
+				s.hotspotMu.RLock()
+				st = s.lastHotspotStatus
+				s.hotspotMu.RUnlock()
+			}
 			if st != nil && st.Enabled {
 				action = "STOP"
 			} else {
 				action = "START"
 			}
 		}
-		log.Printf("[Hotspot] Komut iletiliyor: %s", action)
-		s.SendHotspotCommand(action)
+		log.Printf("[Hotspot] Komut iletiliyor: %s (dev=%s)", action, deviceID)
+		s.SendHotspotCommandToDevice(deviceID, action)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
 
 	// Hotspot Connect API
 	mux.HandleFunc("/hotspot/connect", func(w http.ResponseWriter, r *http.Request) {
-		s.hotspotMu.RLock()
-		st := s.lastHotspotStatus
-		s.hotspotMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var st *protocol.HotspotStatusPayload
+		if dev := s.getDevice(deviceID); dev != nil && dev.Hotspot != nil {
+			st = dev.Hotspot
+		} else {
+			s.hotspotMu.RLock()
+			st = s.lastHotspotStatus
+			s.hotspotMu.RUnlock()
+		}
 
 		if st == nil || !st.Enabled || st.SSID == "" {
-			s.SendHotspotCommand("START")
+			s.SendHotspotCommandToDevice(deviceID, "START")
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "Hotspot başlatılıyor, lütfen birazdan tekrar deneyin."})
 			return
@@ -1121,7 +1376,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			profileXML := fmt.Sprintf(`<?xml version="1.0"?>
 <WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
 	<name>%s</name>
-	<SSIDConfig><SSID><name>%s</name></SSID></SSIDConfig>
+	<SSIDConfig><SSID><name>%s</name></SSIDConfig>
 	<connectionType>ESS</connectionType>
 	<connectionMode>manual</connectionMode>
 	<MSM><security><authEncryption>
@@ -1155,6 +1410,7 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Call Audio Bridge API
 	mux.HandleFunc("/call/audio", func(w http.ResponseWriter, r *http.Request) {
 		action := strings.ToUpper(r.URL.Query().Get("action"))
+		deviceID := r.URL.Query().Get("device_id")
 		if action == "" {
 			action = "START"
 		}
@@ -1164,21 +1420,26 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			if d := r.FormValue("data"); d != "" {
 				data = d
 			}
+			if dev := r.FormValue("device_id"); dev != "" {
+				deviceID = dev
+			}
 		}
 
 		if action == "DATA" && data != "" {
-			s.SendCallAudioBridge(protocol.CallAudioBridgePayload{
-				Action:     "DATA",
-				Direction:  "PC_TO_PHONE",
-				Data:       data,
-				SampleRate: 16000,
+			s.SendCallAudioBridgeToDevice(deviceID, protocol.CallAudioBridgePayload{
+				Action:         "DATA",
+				Direction:      "PC_TO_PHONE",
+				Data:           data,
+				SampleRate:     16000,
+				TargetDeviceID: deviceID,
 			})
 		} else {
 			s.callAudioMu.Lock()
 			s.isCallAudioActive = (action == "START")
 			s.callAudioMu.Unlock()
-			s.SendCallAudioBridge(protocol.CallAudioBridgePayload{
-				Action: action,
+			s.SendCallAudioBridgeToDevice(deviceID, protocol.CallAudioBridgePayload{
+				Action:         action,
+				TargetDeviceID: deviceID,
 			})
 		}
 
@@ -1188,13 +1449,23 @@ func (s *SyncServer) Start(ctx context.Context) error {
 
 	// App List API
 	mux.HandleFunc("/apps/list", func(w http.ResponseWriter, r *http.Request) {
-		s.appsMu.RLock()
-		apps := make([]protocol.InstalledAppInfo, len(s.installedApps))
-		copy(apps, s.installedApps)
-		s.appsMu.RUnlock()
+		deviceID := r.URL.Query().Get("device_id")
+		var apps []protocol.InstalledAppInfo
+		if deviceID != "" && deviceID != "all" {
+			if dev := s.getDevice(deviceID); dev != nil && len(dev.Apps) > 0 {
+				apps = make([]protocol.InstalledAppInfo, len(dev.Apps))
+				copy(apps, dev.Apps)
+			}
+		}
+		if apps == nil {
+			s.appsMu.RLock()
+			apps = make([]protocol.InstalledAppInfo, len(s.installedApps))
+			copy(apps, s.installedApps)
+			s.appsMu.RUnlock()
+		}
 
 		if len(apps) == 0 {
-			s.SendAppListRequest()
+			s.SendAppListRequestToDevice(deviceID)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -1208,12 +1479,13 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// App Launch API
 	mux.HandleFunc("/apps/launch", func(w http.ResponseWriter, r *http.Request) {
 		pkg := r.URL.Query().Get("pkg")
+		deviceID := r.URL.Query().Get("device_id")
 		if pkg == "" {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "pkg query parameter required"})
 			return
 		}
-		s.SendAppLaunchRequest(pkg)
+		s.SendAppLaunchRequestToDevice(deviceID, pkg)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "pkg": pkg})
 	})
@@ -1221,9 +1493,10 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Screen Key Input API
 	mux.HandleFunc("/screen/key", func(w http.ResponseWriter, r *http.Request) {
 		codeStr := r.URL.Query().Get("code")
+		deviceID := r.URL.Query().Get("device_id")
 		code, _ := strconv.Atoi(codeStr)
 		if code > 0 {
-			s.SendScreenKey(code)
+			s.SendScreenKeyToDevice(deviceID, code)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "code": code})
@@ -1232,14 +1505,18 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Screen Text Input API
 	mux.HandleFunc("/screen/text", func(w http.ResponseWriter, r *http.Request) {
 		text := r.URL.Query().Get("text")
+		deviceID := r.URL.Query().Get("device_id")
 		if r.Method == http.MethodPost {
 			_ = r.ParseForm()
 			if t := r.FormValue("text"); t != "" {
 				text = t
 			}
+			if d := r.FormValue("device_id"); d != "" {
+				deviceID = d
+			}
 		}
 		if text != "" {
-			s.SendScreenText(text)
+			s.SendScreenTextToDevice(deviceID, text)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "text": text})
@@ -1248,8 +1525,9 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Screen Dim Control API (AMOLED Black Power Saving)
 	mux.HandleFunc("/screen/dim", func(w http.ResponseWriter, r *http.Request) {
 		enabledStr := r.URL.Query().Get("enabled")
+		deviceID := r.URL.Query().Get("device_id")
 		enabled := enabledStr == "true" || enabledStr == "1"
-		s.SendScreenDim(enabled)
+		s.SendScreenDimToDevice(deviceID, enabled)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": enabled})
 	})
@@ -1257,10 +1535,11 @@ func (s *SyncServer) Start(ctx context.Context) error {
 	// Phone Ringer Mode Control API
 	mux.HandleFunc("/ringer/set", func(w http.ResponseWriter, r *http.Request) {
 		mode := strings.ToUpper(r.URL.Query().Get("mode"))
+		deviceID := r.URL.Query().Get("device_id")
 		if mode == "" {
 			mode = "NORMAL"
 		}
-		s.SendRingerCommand(mode)
+		s.SendRingerCommandToDevice(deviceID, mode)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mode": mode})
 	})
@@ -1326,15 +1605,18 @@ func (s *SyncServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	s.clients[conn] = true
 	s.clientsMu.Unlock()
 
-	log.Printf("[Server] 📱 Android cihaz bağlandı: %s", conn.RemoteAddr())
+	dev := s.registerDevice(conn)
+
+	log.Printf("[Server] 📱 Android cihaz bağlandı: %s (%s, ID: %s)", conn.RemoteAddr(), dev.Name, dev.ID)
 	if s.trayManager != nil {
-		s.trayManager.UpdateStatus("Android Cihaz Bağlandı 🟢")
+		s.trayManager.UpdateStatus(fmt.Sprintf("%s Bağlandı 🟢", dev.Name))
 	}
 
 	// Welcome greeting
 	welcome, _ := protocol.NewMessage(protocol.EventDeviceInfo, map[string]string{
 		"server_name": "Windows PC",
 		"status":      "connected",
+		"device_id":   dev.ID,
 	})
 	_ = conn.WriteJSON(welcome)
 
@@ -1368,7 +1650,10 @@ func (s *SyncServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	if isPaired {
 		// Zaten eşleşmişse SMS senkronizasyonu başlat
-		s.RequestSmsSync()
+		s.RequestSmsSyncFromDevice(dev.ID)
+		s.RequestContactsSyncFromDevice(dev.ID)
+		s.RequestPhotosSyncFromDevice(dev.ID)
+		s.SendAppListRequestToDevice(dev.ID)
 	} else {
 		log.Printf("[Güvenlik] ⚠️ Cihaz henüz eşleşmemiş. Eşleştirme Kodu: %s", pin)
 	}
@@ -1378,7 +1663,8 @@ func (s *SyncServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		delete(s.clients, conn)
 		remaining := len(s.clients)
 		s.clientsMu.Unlock()
-		log.Printf("[Server] 📱 Android cihaz ayrıldı: %s", conn.RemoteAddr())
+		s.unregisterDevice(conn)
+		log.Printf("[Server] 📱 Android cihaz ayrıldı: %s (%s)", conn.RemoteAddr(), dev.Name)
 		if remaining == 0 && s.trayManager != nil {
 			s.trayManager.UpdateStatus("Bağlantı Aranıyor 🟡")
 		}
@@ -1394,11 +1680,22 @@ func (s *SyncServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		s.processMessage(&msg)
+		s.processMessage(conn, &msg)
 	}
 }
 
-func (s *SyncServer) processMessage(msg *protocol.Message) {
+func (s *SyncServer) processMessage(conn *websocket.Conn, msg *protocol.Message) {
+	s.devicesMu.RLock()
+	devID := s.connToDevID[conn]
+	dev := s.devices[devID]
+	s.devicesMu.RUnlock()
+
+	devName := ""
+	if dev != nil {
+		devName = dev.Name
+		dev.LastSeen = time.Now().UnixMilli()
+	}
+
 	switch msg.Event {
 	case protocol.EventAuthResponse:
 		var p protocol.AuthResponsePayload
@@ -1408,10 +1705,12 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.isPaired = true
 				s.configMu.Unlock()
 				log.Printf("[Güvenlik] 🔒 Yetkilendirme başarılı! (%s)", p.ClientName)
-				s.RequestSmsSync()
-				s.RequestContactsSync()
-				s.RequestPhotosSync()
-				s.SendAppListRequest()
+				if dev != nil {
+					s.RequestSmsSyncFromDevice(dev.ID)
+					s.RequestContactsSyncFromDevice(dev.ID)
+					s.RequestPhotosSyncFromDevice(dev.ID)
+					s.SendAppListRequestToDevice(dev.ID)
+				}
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1426,10 +1725,12 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			if p.Approved {
 				s.saveAuthToken(p.AuthToken, p.DeviceName)
 				log.Printf("[Güvenlik] 📱 Yeni eşleştirme onaylandı: %s (Token güvenle kaydedildi)", p.DeviceName)
-				s.RequestSmsSync()
-				s.RequestContactsSync()
-				s.RequestPhotosSync()
-				s.SendAppListRequest()
+				if dev != nil {
+					s.RequestSmsSyncFromDevice(dev.ID)
+					s.RequestContactsSyncFromDevice(dev.ID)
+					s.RequestPhotosSyncFromDevice(dev.ID)
+					s.SendAppListRequestToDevice(dev.ID)
+				}
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1445,6 +1746,17 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventDeviceInfo:
 		var p protocol.DeviceInfoPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				if p.DeviceName != "" {
+					dev.Name = p.DeviceName
+				}
+				if p.Model != "" {
+					dev.Model = p.Model
+				}
+				dev.BatteryLevel = p.BatteryLevel
+				dev.IsCharging = p.IsCharging
+				dev.LastSeen = time.Now().UnixMilli()
+			}
 			s.clientsMu.Lock()
 			prevDev := s.lastDeviceInfo
 			s.lastDeviceInfo = &p
@@ -1464,14 +1776,31 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventNotification, protocol.EventPCNotification:
 		var p protocol.NotificationPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
-			log.Printf("[Bildirim] [%s] %s: %s", p.AppName, p.Title, p.Text)
+			if dev != nil {
+				if p.DeviceID == "" {
+					p.DeviceID = dev.ID
+				}
+				if p.DeviceName == "" {
+					p.DeviceName = dev.Name
+				}
+			}
+			log.Printf("[Bildirim] [%s] [%s] %s: %s", p.DeviceName, p.AppName, p.Title, p.Text)
 			s.addNotification(p)
-			_ = windows.ShowToast(p.Title, p.Text, p.AppName)
+			subTitle := p.AppName
+			if p.DeviceName != "" {
+				subTitle += " (" + p.DeviceName + ")"
+			}
+			_ = windows.ShowToast(p.Title, p.Text, subTitle)
 		}
 
 	case protocol.EventCallState:
 		var p protocol.CallStatePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				p.DeviceID = dev.ID
+				p.DeviceName = dev.Name
+				dev.CallState = &p
+			}
 			s.callMu.Lock()
 			s.lastCallState = &p
 			if p.State == "OFFHOOK" && s.activeCallStart.IsZero() {
@@ -1481,7 +1810,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			}
 			s.callMu.Unlock()
 
-			log.Printf("[Arama] Durum: %s, Numara: %s, Kişi: %s", p.State, p.PhoneNumber, p.CallerName)
+			log.Printf("[Arama] Durum: %s, Numara: %s, Kişi: %s (Cihaz: %s)", p.State, p.PhoneNumber, p.CallerName, devName)
 			if p.State == "RINGING" {
 				windows.PauseAllMedia() // Telefon çalınca PC medyasını otomatik duraklat
 				_ = windows.ShowCallAlert(p.CallerName, p.PhoneNumber)
@@ -1493,15 +1822,27 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventSmsSyncResponse:
 		var p protocol.SmsSyncPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				for i := range p.Messages {
+					p.Messages[i].DeviceID = dev.ID
+					p.Messages[i].DeviceName = dev.Name
+				}
+				dev.SmsList = p.Messages
+			}
 			s.smsMu.Lock()
 			s.smsMessages = p.Messages
 			s.smsMu.Unlock()
-			log.Printf("[SMS] %d adet SMS mesajı telefondan senkronize edildi", len(p.Messages))
+			log.Printf("[SMS] %d adet SMS mesajı telefondan (%s) senkronize edildi", len(p.Messages), devName)
 		}
 
 	case protocol.EventSmsNewMessage:
 		var msgItem protocol.SmsMessage
 		if err := json.Unmarshal(msg.Payload, &msgItem); err == nil {
+			if dev != nil {
+				msgItem.DeviceID = dev.ID
+				msgItem.DeviceName = dev.Name
+				dev.SmsList = append([]protocol.SmsMessage{msgItem}, dev.SmsList...)
+			}
 			s.smsMu.Lock()
 			s.smsMessages = append([]protocol.SmsMessage{msgItem}, s.smsMessages...)
 			s.smsMu.Unlock()
@@ -1510,6 +1851,9 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			if senderName == "" {
 				senderName = msgItem.Address
 			}
+			if devName != "" {
+				senderName += " (" + devName + ")"
+			}
 			log.Printf("[SMS Yeni] [%s]: %s", senderName, msgItem.Body)
 			_ = windows.ShowToast("Yeni Mesaj: "+senderName, msgItem.Body, "SMS")
 		}
@@ -1517,17 +1861,22 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventSmsSentStatus:
 		var status protocol.SmsSentStatusPayload
 		if err := json.Unmarshal(msg.Payload, &status); err == nil {
-			log.Printf("[SMS Durumu] Gönderim: %v -> %s", status.Success, status.Recipient)
+			log.Printf("[SMS Durumu] Gönderim (%s): %v -> %s", devName, status.Success, status.Recipient)
 		}
 
 	case protocol.EventMediaInfo:
 		var p protocol.MediaInfoPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
 			p.Source = "phone"
+			if dev != nil {
+				p.DeviceID = dev.ID
+				p.DeviceName = dev.Name
+				dev.Media = &p
+			}
 			s.clientsMu.Lock()
 			s.lastPhoneMedia = &p
 			s.clientsMu.Unlock()
-			log.Printf("[Medya] 📱 Telefondaki Medya: %s - %s", p.Title, p.Artist)
+			log.Printf("[Medya] 📱 Telefondaki Medya (%s): %s - %s", devName, p.Title, p.Artist)
 		}
 
 	case protocol.EventMediaCommand:
@@ -1551,12 +1900,12 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			if p.Type == "image" && p.ImageBase64 != "" {
 				imgBytes, err := base64.StdEncoding.DecodeString(p.ImageBase64)
 				if err == nil && len(imgBytes) > 0 {
-					log.Printf("[Pano] 🖼 Telefondan görsel alındı (%d bayt)", len(imgBytes))
+					log.Printf("[Pano] 🖼 Telefondan (%s) görsel alındı (%d bayt)", devName, len(imgBytes))
 					_ = s.clipManager.SetClipboardImage(imgBytes)
-					_ = windows.ShowToast("📋 Pano: Görsel Alındı", "Telefonda kopyalanan görsel Windows panosuna yazıldı (Ctrl+V ile yapıştırabilirsiniz).", "Android Sync")
+					_ = windows.ShowToast("📋 Pano: Görsel Alındı", fmt.Sprintf("%s cihazından kopyalanan görsel Windows panosuna yazıldı.", devName), "Android Sync")
 				}
 			} else if p.Text != "" {
-				log.Printf("[Pano] Telefondan metin alındı (%d bayt)", len(p.Text))
+				log.Printf("[Pano] Telefondan (%s) metin alındı (%d bayt)", devName, len(p.Text))
 				_ = s.clipManager.SetClipboard(p.Text)
 			}
 		}
@@ -1564,14 +1913,22 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventFileUploadNotify:
 		var p protocol.FileUploadNotifyPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			dID := ""
+			dName := ""
+			if dev != nil {
+				dID = dev.ID
+				dName = dev.Name
+			}
 			s.filesMu.Lock()
 			s.transferredFiles = append([]TransferredFile{{
-				ID:        p.ID,
-				FileName:  p.FileName,
-				FileSize:  p.FileSize,
-				Path:      p.Path,
-				Direction: "incoming",
-				Timestamp: p.Timestamp,
+				ID:         p.ID,
+				FileName:   p.FileName,
+				FileSize:   p.FileSize,
+				Path:       p.Path,
+				Direction:  "incoming",
+				Timestamp:  p.Timestamp,
+				DeviceID:   dID,
+				DeviceName: dName,
 			}}, s.transferredFiles...)
 			if len(s.transferredFiles) > 100 {
 				s.transferredFiles = s.transferredFiles[:100]
@@ -1579,8 +1936,8 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			s.filesMu.Unlock()
 
 			sizeMB := float64(p.FileSize) / (1024 * 1024)
-			_ = windows.ShowToast("📁 Dosya Alındı: "+p.FileName, fmt.Sprintf("%.2f MB - İndirilenler klasörüne kaydedildi.", sizeMB), "Android Sync")
-			log.Printf("[Dosya] Telefonda dosya bildirimi alındı: %s (%.2f MB)", p.FileName, sizeMB)
+			_ = windows.ShowToast("📁 Dosya Alındı: "+p.FileName, fmt.Sprintf("%.2f MB (%s) - İndirilenler klasörüne kaydedildi.", sizeMB, devName), "Android Sync")
+			log.Printf("[Dosya] Telefondan (%s) dosya bildirimi alındı: %s (%.2f MB)", devName, p.FileName, sizeMB)
 		}
 
 	case protocol.EventRemoteAction:
@@ -1592,27 +1949,41 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventOpenUrl:
 		var p protocol.OpenUrlPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil && p.URL != "" {
-			log.Printf("[Sekme Paylaşımı] Telefondan web bağlantısı alındı: %s", p.URL)
+			log.Printf("[Sekme Paylaşımı] Telefondan (%s) web bağlantısı alındı: %s", devName, p.URL)
 			_ = s.openURLInBrowser(p.URL)
-			_ = windows.ShowToast("🌐 Telefondan Bağlantı Açıldı", p.URL, "Android Sync")
+			_ = windows.ShowToast("🌐 Telefondan Bağlantı Açıldı ("+devName+")", p.URL, "Android Sync")
 		}
 
 	case protocol.EventContactsResponse:
 		var p protocol.ContactsResponsePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				for i := range p.Contacts {
+					p.Contacts[i].DeviceID = dev.ID
+					p.Contacts[i].DeviceName = dev.Name
+				}
+				dev.Contacts = p.Contacts
+			}
 			s.contactsMu.Lock()
 			s.contacts = p.Contacts
 			s.contactsMu.Unlock()
-			log.Printf("[Rehber] %d adet kişi telefondan başarıyla senkronize edildi", len(p.Contacts))
+			log.Printf("[Rehber] %d adet kişi telefondan (%s) senkronize edildi", len(p.Contacts), devName)
 		}
 
 	case protocol.EventPhotosResponse:
 		var p protocol.PhotosResponsePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				for i := range p.Photos {
+					p.Photos[i].DeviceID = dev.ID
+					p.Photos[i].DeviceName = dev.Name
+				}
+				dev.Photos = p.Photos
+			}
 			s.photosMu.Lock()
 			s.photos = p.Photos
 			s.photosMu.Unlock()
-			log.Printf("[Galeri] %d adet fotoğraf telefondan başarıyla senkronize edildi", len(p.Photos))
+			log.Printf("[Galeri] %d adet fotoğraf telefondan (%s) senkronize edildi", len(p.Photos), devName)
 		}
 
 	case protocol.EventNotificationDismiss:
@@ -1634,10 +2005,14 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			windows.HandleBiometricUnlock(p)
 		}
 
-
 	case protocol.EventScreenMirrorFrame:
 		var p protocol.ScreenMirrorFramePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				p.DeviceID = dev.ID
+				p.DeviceName = dev.Name
+				dev.LastFrame = &p
+			}
 			s.mirrorMu.Lock()
 			s.lastMirrorFrame = &p
 			s.mirrorMu.Unlock()
@@ -1646,19 +2021,29 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventStorageMountStatus:
 		var p protocol.StorageMountStatusPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				p.DeviceID = dev.ID
+				p.DeviceName = dev.Name
+				dev.Storage = &p
+			}
 			s.storageMu.Lock()
 			s.lastStorageStatus = &p
 			s.storageMu.Unlock()
-			log.Printf("[WebDAV] 📁 Telefon depolama durumu: aktif=%v, port=%d, url=%s", p.Enabled, p.Port, p.URL)
+			log.Printf("[WebDAV] 📁 Telefon depolama durumu (%s): aktif=%v, port=%d, url=%s", devName, p.Enabled, p.Port, p.URL)
 		}
 
 	case protocol.EventHotspotStatus:
 		var p protocol.HotspotStatusPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				p.DeviceID = dev.ID
+				p.DeviceName = dev.Name
+				dev.Hotspot = &p
+			}
 			s.hotspotMu.Lock()
 			s.lastHotspotStatus = &p
 			s.hotspotMu.Unlock()
-			log.Printf("[Hotspot] 📡 Hotspot durumu: aktif=%v, ssid=%s", p.Enabled, p.SSID)
+			log.Printf("[Hotspot] 📡 Hotspot durumu (%s): aktif=%v, ssid=%s", devName, p.Enabled, p.SSID)
 		}
 
 	case protocol.EventCallAudioBridge:
@@ -1679,10 +2064,17 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 	case protocol.EventAppListResponse:
 		var p protocol.AppListResponsePayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			if dev != nil {
+				for i := range p.Apps {
+					p.Apps[i].DeviceID = dev.ID
+					p.Apps[i].DeviceName = dev.Name
+				}
+				dev.Apps = p.Apps
+			}
 			s.appsMu.Lock()
 			s.installedApps = p.Apps
 			s.appsMu.Unlock()
-			log.Printf("[Uygulamalar] 📱 %d adet uygulama telefondan senkronize edildi", len(p.Apps))
+			log.Printf("[Uygulamalar] 📱 %d adet uygulama telefondan (%s) senkronize edildi", len(p.Apps), devName)
 		}
 
 	case protocol.EventPing:
@@ -1703,192 +2095,271 @@ func (s *SyncServer) openURLInBrowser(rawURL string) error {
 }
 
 func (s *SyncServer) SendOpenUrlToPhone(url string) {
+	s.SendOpenUrlToDevice("", url)
+}
+
+func (s *SyncServer) SendOpenUrlToDevice(deviceID, url string) {
 	msg, err := protocol.NewMessage(protocol.EventOpenUrl, protocol.OpenUrlPayload{
-		URL:    url,
-		Sender: s.serverName,
+		URL:            url,
+		Sender:         s.serverName,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Sekme Paylaşımı] URL telefona gönderildi: %s", url)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Sekme Paylaşımı] URL telefona gönderildi (%s): %s", deviceID, url)
 	}
 }
 
 func (s *SyncServer) RequestContactsSync() {
-	msg, err := protocol.NewMessage(protocol.EventContactsRequest, map[string]any{})
+	s.RequestContactsSyncFromDevice("")
+}
+
+func (s *SyncServer) RequestContactsSyncFromDevice(deviceID string) {
+	msg, err := protocol.NewMessage(protocol.EventContactsRequest, map[string]any{"target_device_id": deviceID})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Rehber] Telefon rehberi senkronizasyon isteği gönderildi")
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Rehber] Telefon rehberi senkronizasyon isteği gönderildi (%s)", deviceID)
 	}
 }
 
 func (s *SyncServer) RequestPhotosSync() {
-	msg, err := protocol.NewMessage(protocol.EventPhotosRequest, map[string]any{})
+	s.RequestPhotosSyncFromDevice("")
+}
+
+func (s *SyncServer) RequestPhotosSyncFromDevice(deviceID string) {
+	msg, err := protocol.NewMessage(protocol.EventPhotosRequest, map[string]any{"target_device_id": deviceID})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Galeri] Telefon fotoğraf galerisi senkronizasyon isteği gönderildi")
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Galeri] Fotoğraf senkronizasyon isteği gönderildi (%s)", deviceID)
 	}
 }
 
 func (s *SyncServer) RequestPhotoDownload(photoID int64) {
+	s.RequestPhotoDownloadFromDevice("", photoID)
+}
+
+func (s *SyncServer) RequestPhotoDownloadFromDevice(deviceID string, photoID int64) {
 	msg, err := protocol.NewMessage(protocol.EventPhotoDownloadRequest, protocol.PhotoDownloadRequestPayload{
-		ID: photoID,
+		ID:             photoID,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Galeri] Fotoğraf indirme isteği telefona gönderildi: id=%d", photoID)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Galeri] Fotoğraf indirme isteği gönderildi (%s): id=%d", deviceID, photoID)
 	}
 }
 
 func (s *SyncServer) SendScreenMirrorRequest(action string, quality int) {
+	s.SendScreenMirrorRequestToDevice("", action, quality)
+}
+
+func (s *SyncServer) SendScreenMirrorRequestToDevice(deviceID, action string, quality int) {
 	msg, err := protocol.NewMessage(protocol.EventScreenMirrorRequest, protocol.ScreenMirrorRequestPayload{
-		Action:  action,
-		Quality: quality,
+		Action:         action,
+		Quality:        quality,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Ekran Yansıtma] İstek gönderildi: action=%s, quality=%d", action, quality)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Ekran Yansıtma] İstek gönderildi (%s): action=%s, quality=%d", deviceID, action, quality)
 	}
 }
 
 func (s *SyncServer) SendScreenTouch(action string, x, y float32) {
+	s.SendScreenTouchToDevice("", action, x, y)
+}
+
+func (s *SyncServer) SendScreenTouchToDevice(deviceID, action string, x, y float32) {
 	msg, err := protocol.NewMessage(protocol.EventScreenTouch, protocol.ScreenTouchPayload{
-		Action: action,
-		X:      x,
-		Y:      y,
+		Action:         action,
+		X:              x,
+		Y:              y,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
 func (s *SyncServer) SendStorageMountRequest(action string) {
+	s.SendStorageMountRequestToDevice("", action)
+}
+
+func (s *SyncServer) SendStorageMountRequestToDevice(deviceID, action string) {
 	msg, err := protocol.NewMessage(protocol.EventStorageMountRequest, protocol.StorageMountRequestPayload{
-		Action: action,
+		Action:         action,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[WebDAV] Depolama isteği gönderildi: action=%s", action)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[WebDAV] Depolama isteği gönderildi (%s): action=%s", deviceID, action)
 	}
 }
 
 func (s *SyncServer) SendHotspotCommand(action string) {
+	s.SendHotspotCommandToDevice("", action)
+}
+
+func (s *SyncServer) SendHotspotCommandToDevice(deviceID, action string) {
 	msg, err := protocol.NewMessage(protocol.EventHotspotCommand, protocol.HotspotCommandPayload{
-		Action: action,
+		Action:         action,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Hotspot] Komut gönderildi: action=%s", action)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Hotspot] Komut gönderildi (%s): action=%s", deviceID, action)
 	}
 }
 
 func (s *SyncServer) SendCallAudioBridge(payload protocol.CallAudioBridgePayload) {
+	s.SendCallAudioBridgeToDevice("", payload)
+}
+
+func (s *SyncServer) SendCallAudioBridgeToDevice(deviceID string, payload protocol.CallAudioBridgePayload) {
+	payload.TargetDeviceID = deviceID
 	msg, err := protocol.NewMessage(protocol.EventCallAudioBridge, payload)
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
 func (s *SyncServer) SendAppListRequest() {
-	msg, err := protocol.NewMessage(protocol.EventAppListRequest, map[string]string{})
+	s.SendAppListRequestToDevice("")
+}
+
+func (s *SyncServer) SendAppListRequestToDevice(deviceID string) {
+	msg, err := protocol.NewMessage(protocol.EventAppListRequest, map[string]string{"target_device_id": deviceID})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Uygulamalar] Uygulama listesi isteği telefona gönderildi")
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Uygulamalar] Uygulama listesi isteği gönderildi (%s)", deviceID)
 	}
 }
 
 func (s *SyncServer) SendAppLaunchRequest(packageName string) {
+	s.SendAppLaunchRequestToDevice("", packageName)
+}
+
+func (s *SyncServer) SendAppLaunchRequestToDevice(deviceID, packageName string) {
 	msg, err := protocol.NewMessage(protocol.EventAppLaunchRequest, protocol.AppLaunchRequestPayload{
-		PackageName: packageName,
+		PackageName:    packageName,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi: %s", packageName)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi (%s): %s", deviceID, packageName)
 	}
 }
 
-// SendScreenKey sends an Android keycode to the phone.
 func (s *SyncServer) SendScreenKey(keyCode int) {
+	s.SendScreenKeyToDevice("", keyCode)
+}
+
+func (s *SyncServer) SendScreenKeyToDevice(deviceID string, keyCode int) {
 	msg, err := protocol.NewMessage(protocol.EventScreenKey, protocol.ScreenKeyPayload{
-		KeyCode: keyCode,
+		KeyCode:        keyCode,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
-// SendScreenText sends typed text to the active Android input field.
 func (s *SyncServer) SendScreenText(text string) {
+	s.SendScreenTextToDevice("", text)
+}
+
+func (s *SyncServer) SendScreenTextToDevice(deviceID, text string) {
 	msg, err := protocol.NewMessage(protocol.EventScreenText, protocol.ScreenTextPayload{
-		Text: text,
+		Text:           text,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
-// SendScreenDim controls AMOLED screen-off power saving during mirroring.
 func (s *SyncServer) SendScreenDim(enabled bool) {
+	s.SendScreenDimToDevice("", enabled)
+}
+
+func (s *SyncServer) SendScreenDimToDevice(deviceID string, enabled bool) {
 	msg, err := protocol.NewMessage(protocol.EventScreenDim, protocol.ScreenDimPayload{
-		Enabled: enabled,
+		Enabled:        enabled,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Ekran] Ekran karartma isteği gönderildi: enabled=%v", enabled)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Ekran] Ekran karartma isteği gönderildi (%s): enabled=%v", deviceID, enabled)
 	}
 }
 
-// SendRingerCommand changes phone ringer mode (NORMAL, VIBRATE, SILENT).
 func (s *SyncServer) SendRingerCommand(mode string) {
+	s.SendRingerCommandToDevice("", mode)
+}
+
+func (s *SyncServer) SendRingerCommandToDevice(deviceID, mode string) {
 	msg, err := protocol.NewMessage(protocol.EventRingerCommand, protocol.RingerCommandPayload{
-		Mode: mode,
+		Mode:           mode,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Zil Sesi] Zil sesi komutu gönderildi: %s", mode)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Zil Sesi] Zil sesi komutu gönderildi (%s): %s", deviceID, mode)
 	}
 }
 
-// SendNotificationReply sends an inline reply to an Android notification.
 func (s *SyncServer) SendNotificationReply(key string, actionIndex int, text string) {
+	s.SendNotificationReplyToDevice("", key, actionIndex, text)
+}
+
+func (s *SyncServer) SendNotificationReplyToDevice(deviceID, key string, actionIndex int, text string) {
 	payload := protocol.NotificationReplyPayload{
 		NotificationKey: key,
 		ActionIndex:     actionIndex,
 		ReplyText:       text,
+		TargetDeviceID:  deviceID,
 	}
 	msg, err := protocol.NewMessage(protocol.EventNotificationReply, payload)
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Bildirim Yanıtı] Yanıt iletildi (%s): %s", key, text)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Bildirim Yanıtı] Yanıt iletildi (%s, %s): %s", deviceID, key, text)
 	}
 }
 
-// SendNotificationAction triggers an action button on an Android notification.
 func (s *SyncServer) SendNotificationAction(key string, actionIndex int) {
+	s.SendNotificationActionToDevice("", key, actionIndex)
+}
+
+func (s *SyncServer) SendNotificationActionToDevice(deviceID, key string, actionIndex int) {
 	payload := protocol.NotificationActionPayload{
 		NotificationKey: key,
 		ActionIndex:     actionIndex,
+		TargetDeviceID:  deviceID,
 	}
 	msg, err := protocol.NewMessage(protocol.EventNotificationAction, payload)
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Bildirim Eylemi] Eylem isteği gönderildi (%s, index: %d)", key, actionIndex)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Bildirim Eylemi] Eylem isteği gönderildi (%s, %s, index: %d)", deviceID, key, actionIndex)
 	}
 }
 
-// SendNotificationDismiss requests dismissal of an Android notification.
 func (s *SyncServer) SendNotificationDismiss(key, id string) {
+	s.SendNotificationDismissToDevice("", key, id)
+}
+
+func (s *SyncServer) SendNotificationDismissToDevice(deviceID, key, id string) {
 	payload := protocol.NotificationDismissPayload{
 		NotificationKey: key,
 		NotificationID:  id,
+		TargetDeviceID:  deviceID,
 	}
 	msg, err := protocol.NewMessage(protocol.EventNotificationDismiss, payload)
 	if err == nil {
-		s.Broadcast(msg)
-		log.Printf("[Bildirim Kapatma] Kapatma isteği gönderildi: key=%s, id=%s", key, id)
+		s.SendToDevice(deviceID, msg)
+		log.Printf("[Bildirim Kapatma] Kapatma isteği gönderildi (%s): key=%s, id=%s", deviceID, key, id)
 	}
 }
 
-// executeRemoteAction executes remote PC commands (Lock, Sleep, Shutdown, Restart).
 func (s *SyncServer) executeRemoteAction(action string) {
 	log.Printf("[Remote] Uzaktan sistem komutu tetiklendi: %s", action)
 	switch action {
@@ -1905,49 +2376,67 @@ func (s *SyncServer) executeRemoteAction(action string) {
 	}
 }
 
-// SendCallAction sends answer/reject/hangup/dial commands to phone.
 func (s *SyncServer) SendCallAction(action string, number *string, value *bool) {
+	s.SendCallActionToDevice("", action, number, value)
+}
+
+func (s *SyncServer) SendCallActionToDevice(deviceID, action string, number *string, value *bool) {
 	msg, err := protocol.NewMessage(protocol.EventCallAction, protocol.CallActionPayload{
-		Action: action,
-		Number: number,
-		Value:  value,
+		Action:         action,
+		Number:         number,
+		Value:          value,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
-// SendSms sends a new SMS message request to phone.
 func (s *SyncServer) SendSms(recipient, body string) {
+	s.SendSmsToDevice("", recipient, body)
+}
+
+func (s *SyncServer) SendSmsToDevice(deviceID, recipient, body string) {
 	msg, err := protocol.NewMessage(protocol.EventSmsSend, protocol.SmsSendPayload{
-		Recipient: recipient,
-		Body:      body,
+		Recipient:      recipient,
+		Body:           body,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
-// RequestSmsSync requests the latest SMS inbox and threads from phone.
 func (s *SyncServer) RequestSmsSync() {
-	msg, err := protocol.NewMessage(protocol.EventSmsSyncRequest, map[string]string{"type": "full"})
+	s.RequestSmsSyncFromDevice("")
+}
+
+func (s *SyncServer) RequestSmsSyncFromDevice(deviceID string) {
+	msg, err := protocol.NewMessage(protocol.EventSmsSyncRequest, map[string]string{
+		"type":             "full",
+		"target_device_id": deviceID,
+	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
-// SendPhoneCommand sends a command to all connected Android phones (media, volume, ring).
 func (s *SyncServer) SendPhoneCommand(action string, percent ...float64) {
+	s.SendPhoneCommandToDevice("", action, percent...)
+}
+
+func (s *SyncServer) SendPhoneCommandToDevice(deviceID, action string, percent ...float64) {
 	pct := 0.0
 	if len(percent) > 0 {
 		pct = percent[0]
 	}
 	msg, err := protocol.NewMessage(protocol.EventPhoneCommand, protocol.PhoneCommandPayload{
-		Action:  action,
-		Percent: pct,
+		Action:         action,
+		Percent:        pct,
+		TargetDeviceID: deviceID,
 	})
 	if err == nil {
-		s.Broadcast(msg)
+		s.SendToDevice(deviceID, msg)
 	}
 }
 
@@ -2562,6 +3051,101 @@ const dashboardHTML = `<!DOCTYPE html>
         .col-8 { grid-column: span 8; }
         .col-12 { grid-column: span 12; }
 
+        /* Multi-Device UI Styles */
+        .device-select {
+            background: var(--bg-input);
+            border: 1px solid var(--border-glow);
+            color: var(--accent-blue);
+            font-weight: 700;
+            border-radius: var(--radius-sm);
+            padding: 6px 12px;
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .device-select:hover, .device-select:focus {
+            border-color: #38BDF8;
+            box-shadow: 0 0 12px var(--glow-cyan);
+        }
+        .device-select option {
+            background: #0d111b;
+            color: #F8FAFC;
+        }
+        .global-dev-select-wrap {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(56, 189, 248, 0.08);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            padding: 4px 10px;
+            border-radius: var(--radius-md);
+        }
+        .device-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 99px;
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-blue);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            white-space: nowrap;
+        }
+        .device-tag.device-pc {
+            background: rgba(99, 102, 241, 0.15);
+            color: #818CF8;
+            border-color: rgba(99, 102, 241, 0.3);
+        }
+        .device-filter-bar {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+        }
+        .device-filter-pill {
+            font-size: 11px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 99px;
+            border: 1px solid var(--border-card);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.2s;
+        }
+        .device-filter-pill:hover {
+            color: var(--text-primary);
+            background: rgba(255, 255, 255, 0.08);
+        }
+        .device-filter-pill.active {
+            background: linear-gradient(135deg, #0284C7, #2563EB);
+            color: white;
+            border-color: transparent;
+            box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+        }
+        .device-card-item {
+            background: rgba(18, 24, 38, 0.72);
+            border: 1px solid var(--border-card);
+            border-radius: var(--radius-lg);
+            padding: 20px;
+            transition: all 0.25s ease;
+            position: relative;
+        }
+        .device-card-item:hover {
+            border-color: var(--border-glow);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+        .device-card-item.selected {
+            border-color: var(--accent-blue);
+            box-shadow: 0 0 20px var(--glow-cyan);
+        }
+
         @media (max-width: 1024px) {
             .col-4, .col-6, .col-8 { grid-column: span 12; }
             .sidebar { width: 80px; }
@@ -2637,6 +3221,12 @@ const dashboardHTML = `<!DOCTYPE html>
             <header class="topbar">
                 <div class="page-title" id="pageTitle">Genel Bakış</div>
                 <div class="topbar-actions">
+                    <div class="global-dev-select-wrap" title="Hedef Cihaz Seçimi">
+                        <span style="font-size:12px; font-weight:700; color:var(--accent-blue);">🎯 Hedef:</span>
+                        <select id="globalDeviceSelector" class="device-select" onchange="onGlobalDeviceChange(this.value)">
+                            <option value="all">🌐 Tüm Cihazlar</option>
+                        </select>
+                    </div>
                     <button class="btn btn-secondary" style="font-size:12px; padding:6px 12px;" onclick="remoteAction('LOCK')" title="Bilgisayarı Kilitle">🔒 Kilitle</button>
                     <button class="btn btn-secondary" style="font-size:12px; padding:6px 12px;" onclick="remoteAction('SLEEP')" title="Bilgisayarı Uyku Moduna Al">🌙 Uyku</button>
                     <button class="btn" onclick="ringPhone()" id="btnQuickRing">🔔 Telefonumu Çaldır</button>
@@ -2666,6 +3256,7 @@ const dashboardHTML = `<!DOCTYPE html>
             <!-- Floating Incoming Call Overlay -->
             <div id="incomingCallOverlay" class="call-overlay">
                 <div class="call-avatar">📞</div>
+                <div id="incomingCallerDevice" style="font-size:11px; color:var(--accent-blue); font-weight:700; margin-bottom:4px;"></div>
                 <div class="call-caller" id="incomingCallerName">Bilinmeyen Numara</div>
                 <div class="call-number" id="incomingCallerNumber">Gelen Çağrı...</div>
                 <div class="call-buttons">
@@ -2692,28 +3283,16 @@ const dashboardHTML = `<!DOCTYPE html>
                 </div>
 
                 <div class="overview-grid">
-                    <!-- Device Card -->
-                    <div class="card col-4">
-                        <div style="display:flex; align-items:center; gap:16px; margin-bottom:20px;">
-                            <div style="width:56px; height:56px; background:rgba(56,189,248,0.12); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:28px;">📱</div>
-                            <div>
-                                <h3 id="devName" style="font-size:18px; font-weight:800;">Bağlantı Aranıyor...</h3>
-                                <p id="devSub" style="font-size:12px; color:var(--text-muted);">Wi-Fi eşleşmesi bekleniyor</p>
-                            </div>
+                    <!-- Connected Devices Dynamic Grid -->
+                    <div class="col-4" style="display:flex; flex-direction:column; gap:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3 style="font-size:16px; font-weight:700;">📱 Bağlı Telefonlar</h3>
+                            <span id="overviewDevCount" class="nav-badge" style="font-size:11px;">0 Cihaz</span>
                         </div>
-                        <div style="background:rgba(0,0,0,0.25); border-radius:var(--radius-md); padding:16px; margin-bottom:20px;">
-                            <div style="display:flex; justify-content:space-between; font-size:13px; margin-bottom:8px;">
-                                <span>Pil Durumu</span>
-                                <strong id="devBattery">--%</strong>
+                        <div id="overviewDevicesGrid" style="display:flex; flex-direction:column; gap:14px;">
+                            <div class="card" style="padding:20px; text-align:center; color:var(--text-muted);">
+                                Bağlantı aranıyor...
                             </div>
-                            <div style="width:100%; height:8px; background:rgba(255,255,255,0.1); border-radius:99px; overflow:hidden;">
-                                <div id="devBatteryBar" style="width:0%; height:100%; background:linear-gradient(90deg, #10B981, #38BDF8); transition:width 0.5s;"></div>
-                            </div>
-                        </div>
-                        <div style="display:flex; gap:8px;">
-                            <button class="btn" style="flex:1;" onclick="sendPhoneCmd('VOLUME_UP')">🔊 Ses +</button>
-                            <button class="btn" style="flex:1;" onclick="sendPhoneCmd('VOLUME_DOWN')">🔉 Ses -</button>
-                            <button class="btn" style="flex:1;" onclick="sendPhoneCmd('MUTE')">🔇 Sessiz</button>
                         </div>
                     </div>
 
@@ -2822,7 +3401,13 @@ const dashboardHTML = `<!DOCTYPE html>
             <div id="tab-calls" class="tab-content">
                 <div class="overview-grid">
                     <div class="card col-6">
-                        <h3 style="font-size:18px; font-weight:700; margin-bottom:16px;">📞 Hızlı Arama &amp; Tuş Takımı</h3>
+                        <h3 style="font-size:18px; font-weight:700; margin-bottom:14px;">📞 Hızlı Arama &amp; Tuş Takımı</h3>
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+                            <span style="font-size:12px; font-weight:700; color:var(--text-secondary);">Arama Yapılacak Cihaz:</span>
+                            <select id="callDeviceSelector" class="device-select" style="flex:1;">
+                                <option value="all">Otomatik (Varsayılan)</option>
+                            </select>
+                        </div>
                         <div style="display:flex; gap:10px; margin-bottom:20px;">
                             <input type="text" id="dialInput" class="search-input" placeholder="Aranacak numara veya kişi..." style="font-size:16px; font-family:'JetBrains Mono',monospace;">
                             <button class="btn btn-success" onclick="dialNumber()">📞 Ara</button>
@@ -2869,6 +3454,9 @@ const dashboardHTML = `<!DOCTYPE html>
                             <input type="text" id="smsSearch" class="search-input" placeholder="Sohbet ara..." oninput="filterSms()">
                             <button class="btn btn-primary" style="padding:8px 12px;" onclick="newChatModal()">+</button>
                         </div>
+                        <div id="smsDeviceFilterTabs" class="device-filter-bar" style="padding: 0 16px 10px 16px;">
+                            <button class="device-filter-pill active" onclick="filterSmsByDevice('all', this)">🌐 Tümü</button>
+                        </div>
                         <ul id="threadsList" class="threads-list">
                             <li style="padding:20px; text-align:center; color:var(--text-muted); font-size:13px;">Mesajlar yükleniyor...</li>
                         </ul>
@@ -2894,6 +3482,9 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
 
                         <div class="chat-input-bar">
+                            <select id="smsSendDeviceSelector" class="device-select" style="max-width:140px; font-size:11px;" title="SMS Gönderilecek Hat / Telefon">
+                                <option value="all">Otomatik</option>
+                            </select>
                             <input type="text" id="chatInput" class="chat-input" placeholder="Bir mesaj yazın (Enter ile gönder)..." onkeypress="if(event.key==='Enter') sendChatMsg()">
                             <button class="btn btn-primary" onclick="sendChatMsg()">Gönder 🚀</button>
                         </div>
@@ -2942,41 +3533,10 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <!-- Phone Media Card (Full) -->
-                    <div class="card col-6">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-                            <h3 style="font-size:17px; font-weight:700;">📱 Telefonda Çalan Medya (Android)</h3>
-                            <span id="fullPhoneTag" style="font-size:11px; background:rgba(16,185,129,0.15); color:var(--accent-green); padding:3px 8px; border-radius:4px; font-weight:700;">HAZIR</span>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:20px; background:rgba(0,0,0,0.3); padding:20px; border-radius:var(--radius-lg); margin-bottom:16px;">
-                            <div style="width:72px; height:72px; border-radius:var(--radius-md); background:linear-gradient(135deg, #10B981, #059669); display:flex; align-items:center; justify-content:center; font-size:32px; box-shadow:0 6px 24px rgba(16,185,129,0.25);">📱</div>
-                            <div style="flex:1; overflow:hidden;">
-                                <div style="font-size:11px; font-weight:700; color:var(--accent-green); text-transform:uppercase; margin-bottom:4px;">ANDROİD OYNATICI</div>
-                                <h3 id="fullPhoneTitle" style="font-size:18px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Telefon Medyası Yok</h3>
-                                <p id="fullPhoneArtist" style="font-size:13px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">Telefonda müzik veya podcast açın</p>
-                            </div>
-                        </div>
-
-                        <!-- Scrubber in Full Phone Media Tab -->
-                        <div style="margin-bottom:16px; background:rgba(0,0,0,0.2); padding:14px; border-radius:var(--radius-md);">
-                            <input type="range" id="fullPhoneMediaSeek" min="0" max="100" value="0" style="width:100%; accent-color:#10B981; cursor:pointer;" onmousedown="isSeekingPhoneMedia=true" ontouchstart="isSeekingPhoneMedia=true" oninput="updatePhoneSeekTimePreview(this.value)" onchange="seekPhoneMedia(this.value)">
-                            <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-secondary); margin-top:4px;">
-                                <span id="fullPhoneMediaCurTime">00:00</span>
-                                <span id="fullPhoneMediaTotalTime">00:00</span>
-                            </div>
-                        </div>
-
-                        <div style="display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-bottom:12px;">
-                            <button class="btn" style="padding:10px 18px; font-size:13px;" onclick="seekPhoneRelative(-15)">⏪ 15s Geri</button>
-                            <button class="btn" style="padding:10px 18px; font-size:13px;" onclick="sendPhoneCmd('PREV')">⏮ Önceki Parça</button>
-                            <button class="btn btn-primary" style="padding:10px 24px; font-size:14px; background:#10B981;" onclick="sendPhoneCmd('PLAY_PAUSE')">⏯ Oynat / Duraklat</button>
-                            <button class="btn" style="padding:10px 18px; font-size:13px;" onclick="sendPhoneCmd('NEXT')">⏭ Sonraki Parça</button>
-                            <button class="btn" style="padding:10px 18px; font-size:13px;" onclick="seekPhoneRelative(15)">⏩ 15s İleri</button>
-                        </div>
-                        <div style="display:flex; justify-content:center; gap:10px;">
-                            <button class="btn" style="padding:8px 16px; font-size:12px;" onclick="sendPhoneCmd('VOLUME_DOWN')">🔉 Telefon Ses -</button>
-                            <button class="btn" style="padding:8px 16px; font-size:12px;" onclick="sendPhoneCmd('VOLUME_UP')">🔊 Telefon Ses +</button>
-                            <button class="btn" style="padding:8px 16px; font-size:12px;" onclick="sendPhoneCmd('MUTE')">🔇 Telefon Sessiz</button>
+                    <!-- Multi-Device Phone Media Container -->
+                    <div id="multiDevicePhoneMediaContainer" class="col-6" style="display:flex; flex-direction:column; gap:16px;">
+                        <div class="card" style="padding:20px; text-align:center; color:var(--text-muted);">
+                            Telefonda çalan medya bekleniyor...
                         </div>
                     </div>
                 </div>
@@ -3004,6 +3564,12 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
 
                         <div id="fullClipBox" style="background:rgba(0,0,0,0.4); border:1px solid var(--border-card); border-radius:var(--radius-md); padding:20px; font-family:'JetBrains Mono',monospace; font-size:14px; min-height:100px; margin-bottom:20px; white-space:pre-wrap; word-break:break-all;">Pano boş...</div>
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+                            <span style="font-size:12px; font-weight:700; color:var(--accent-blue);">Hedef Cihaz:</span>
+                            <select id="clipDeviceSelector" class="device-select" style="max-width:260px;">
+                                <option value="all">🌐 Tüm Cihazlar (Mesh Pano)</option>
+                            </select>
+                        </div>
                         <div style="display:flex; gap:12px;">
                             <input type="text" id="customClipInput" class="search-input" placeholder="Telefona ve diğer cihazlara metin gönder...">
                             <button class="btn btn-primary" onclick="sendCustomClipText()">Panoya Aktar</button>
@@ -3016,9 +3582,14 @@ const dashboardHTML = `<!DOCTYPE html>
             <!-- TAB 6: Bildirimler -->
             <div id="tab-notifications" class="tab-content">
                 <div class="card col-12">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                        <h3 style="font-size:18px; font-weight:700;">🔔 Canlı Bildirim Akışı</h3>
-                        <span id="notifBadgeFull" style="font-size:12px; color:var(--text-muted);">0 Bildirim</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <h3 style="font-size:18px; font-weight:700;">🔔 Canlı Bildirim Akışı</h3>
+                            <span id="notifBadgeFull" style="font-size:12px; color:var(--text-muted);">0 Bildirim</span>
+                        </div>
+                        <div id="notifDeviceFilterContainer" class="device-filter-bar">
+                            <button class="device-filter-pill active" onclick="filterNotifsByDevice('all', this)">🌐 Tümü</button>
+                        </div>
                     </div>
                     <div id="fullNotifList" style="display:flex; flex-direction:column; gap:12px;">
                         <p style="color:var(--text-muted); font-size:14px; text-align:center; padding:40px;">Henüz gelen bildirim yok.</p>
@@ -3031,14 +3602,22 @@ const dashboardHTML = `<!DOCTYPE html>
                 <div class="overview-grid">
                     <!-- Drop Zone Card -->
                     <div class="card col-12">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:12px;">
                             <h3 style="font-size:18px; font-weight:700;">📁 Wi-Fi Dosya Gönderimi (PC ➡️ Telefon)</h3>
-                            <button class="btn btn-secondary" onclick="openDownloadsFolder()">📂 İndirilenler Klasörünü Aç</button>
+                            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <span style="font-size:12px; font-weight:700; color:var(--accent-blue);">Hedef Cihaz:</span>
+                                    <select id="fileDeviceSelector" class="device-select" style="max-width:240px;">
+                                        <option value="all">🌐 Tüm Bağlı Telefonlar</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-secondary" onclick="openDownloadsFolder()">📂 İndirilenler Klasörünü Aç</button>
+                            </div>
                         </div>
                         <div id="dropZone" style="border: 2px dashed rgba(56, 189, 248, 0.4); border-radius: var(--radius-lg); padding: 40px 20px; text-align: center; background: rgba(56, 189, 248, 0.04); cursor: pointer; transition: all 0.3s ease;">
                             <div style="font-size: 40px; margin-bottom: 12px;">📤</div>
                             <div style="font-size: 15px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px;">Dosyaları buraya sürükleyip bırakın veya tıklayın</div>
-                            <div style="font-size: 12px; color: var(--text-secondary);">Fotoğraflar, videolar, belgeler ve APK'lar doğrudan telefonun Downloads klasörüne aktarılır</div>
+                            <div style="font-size: 12px; color: var(--text-secondary);">Fotoğraflar, videolar, belgeler ve APK'lar doğrudan seçili telefonun Downloads klasörüne aktarılır</div>
                             <input type="file" id="filePickerInput" multiple style="display: none;" onchange="handleFileSelect(event)">
                         </div>
                         <div id="uploadProgressBox" style="display:none; margin-top:16px; padding:12px 16px; background:rgba(0,0,0,0.3); border-radius:var(--radius-md);">
@@ -3063,6 +3642,7 @@ const dashboardHTML = `<!DOCTYPE html>
                                 <thead>
                                     <tr style="border-bottom:1px solid var(--border-card); color:var(--text-muted); font-size:11px; text-transform:uppercase;">
                                         <th style="padding:10px 14px;">Yön</th>
+                                        <th style="padding:10px 14px;">Cihaz</th>
                                         <th style="padding:10px 14px;">Dosya Adı</th>
                                         <th style="padding:10px 14px;">Boyut</th>
                                         <th style="padding:10px 14px;">Tarih</th>
@@ -3070,7 +3650,7 @@ const dashboardHTML = `<!DOCTYPE html>
                                     </tr>
                                 </thead>
                                 <tbody id="filesTableBody">
-                                    <tr><td colspan="5" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>
+                                    <tr><td colspan="6" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -3089,9 +3669,12 @@ const dashboardHTML = `<!DOCTYPE html>
                                     Telefonunuzdaki kişilerle doğrudan arama başlatabilir veya SMS gönderebilirsiniz.
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 10px; align-items: center;">
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <select id="contactsDeviceSelector" class="device-select" onchange="onContactsDeviceChange(this.value)">
+                                    <option value="all">🌐 Tüm Cihazların Rehberi</option>
+                                </select>
                                 <span class="nav-badge" id="contactsHeaderBadge" style="font-size: 13px; padding: 6px 14px;">0 Kişi</span>
-                                <button class="btn btn-secondary" onclick="refreshContacts()" style="font-size: 13px; padding: 8px 16px;">🔄 Telefından Yenile</button>
+                                <button class="btn btn-secondary" onclick="refreshContacts()" style="font-size: 13px; padding: 8px 16px;">🔄 Telefondan Yenile</button>
                             </div>
                         </div>
 
@@ -3124,7 +3707,10 @@ const dashboardHTML = `<!DOCTYPE html>
 
                         <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;">
                             <label style="display: block; font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Telefonda Açılacak Web Bağlantısı (URL):</label>
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items:center;">
+                                <select id="tabDeviceSelector" class="device-select" style="min-width:180px;">
+                                    <option value="all">🌐 Tüm Telefonlarda Aç</option>
+                                </select>
                                 <input type="url" id="sendTabUrlInput" class="chat-input" placeholder="https://ornek-site.com/sayfa" style="flex: 1; min-width: 250px;">
                                 <button class="btn btn-primary" onclick="sendTabToPhone()" style="padding: 12px 24px; font-weight: 700;">🚀 Telefonda Anında Aç</button>
                                 <button class="btn btn-secondary" onclick="openLocalTab()" style="padding: 12px 18px;">💻 Bu PC'de Aç</button>
@@ -3166,7 +3752,10 @@ const dashboardHTML = `<!DOCTYPE html>
                                     Telefonunuzdaki son fotoğrafları ve ekran görüntülerini anında görüntüleyin, PC'ye indirin veya panoya kopyalayın.
                                 </div>
                             </div>
-                            <div style="display: flex; gap: 10px; align-items: center;">
+                            <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                                <select id="photosDeviceSelector" class="device-select" onchange="onPhotosDeviceChange(this.value)">
+                                    <option value="all">🌐 Tüm Telefonlar</option>
+                                </select>
                                 <span class="nav-badge" id="photosHeaderBadge" style="font-size: 13px; padding: 6px 14px;">0 Fotoğraf</span>
                                 <button class="btn btn-secondary" onclick="refreshPhotos()" style="font-size: 13px; padding: 8px 16px;">🔄 Telefondan Yenile</button>
                             </div>
@@ -3197,7 +3786,12 @@ const dashboardHTML = `<!DOCTYPE html>
                 <div style="display:flex; gap: 24px; min-height: calc(100vh - 140px);">
                     <!-- Sol: Telefon Canlı Ekranı -->
                     <div class="card" style="flex: 1; display:flex; flex-direction:column; align-items:center; justify-content:center; background: rgba(10, 14, 23, 0.95); position: relative; border-radius: var(--radius-xl); overflow: hidden; padding: 20px;">
-                        
+                        <div style="display:flex; align-items:center; gap:10px; margin-bottom:14px; width:340px; justify-content:space-between;">
+                            <span style="font-size:13px; font-weight:700; color:var(--accent-blue);">Yansıtılan Cihaz:</span>
+                            <select id="screenDeviceSelector" class="device-select" onchange="onScreenDeviceChange(this.value)" style="flex:1;">
+                                <option value="">Cihaz Seçin...</option>
+                            </select>
+                        </div>
                         <div id="phoneScreenContainer" tabindex="0" style="width: 340px; height: 620px; background: #000; border: 4px solid #334155; border-radius: 36px; overflow: hidden; position: relative; display:flex; flex-direction:column; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.2); outline: none;">
                             <!-- Kamera Çentiği -->
                             <div style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 70px; height: 16px; background: #1e293b; border-radius: 99px; z-index: 20; display:flex; align-items:center; justify-content:center;">
@@ -3287,6 +3881,13 @@ const dashboardHTML = `<!DOCTYPE html>
 
             <!-- TAB 12: Ağ & Donanım (WebDAV, Hotspot, Sesli Arama) -->
             <div id="tab-network" class="tab-content">
+                <div style="margin-bottom: 20px; display:flex; align-items:center; gap:12px; background:rgba(0,0,0,0.3); padding:14px 20px; border-radius:var(--radius-md); border:1px solid var(--border-card); flex-wrap:wrap;">
+                    <span style="font-size:13px; font-weight:800; color:var(--accent-blue);">🎯 Yönetilecek Cihaz:</span>
+                    <select id="networkDeviceSelector" class="device-select" onchange="onNetworkDeviceChange(this.value)" style="max-width:280px;">
+                        <option value="all">Otomatik (Varsayılan Cihaz)</option>
+                    </select>
+                    <span style="font-size:12px; color:var(--text-secondary);">WebDAV sürücüsü ve Hotspot komutları bu cihaza yönlendirilir.</span>
+                </div>
                 <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 24px;">
                     
                     <!-- KART 1: WebDAV Ağ Sürücüsü (Z:\) -->
@@ -3389,27 +3990,17 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
                         <button class="btn btn-secondary" onclick="closePhotoLightbox()" style="padding: 6px 12px; font-size: 14px;">✕</button>
                     </div>
-                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #030712; padding: 16px; overflow: hidden;">
-                        <img id="lightboxImage" src="" alt="Önizleme" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius-md);">
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-top: 1px solid var(--border-card); background: rgba(18, 24, 38, 0.8);">
-                        <div id="lightboxInfo" style="font-size: 12px; color: var(--text-muted);">-</div>
-                        <div style="display: flex; gap: 8px;">
-                            <button class="btn btn-secondary" id="lightboxCopyBtn" onclick="copyLightboxImage()" style="font-size: 12px; padding: 8px 14px;">📋 Panoya Kopyala</button>
-                            <button class="btn btn-primary" id="lightboxDownloadBtn" onclick="downloadLightboxPhoto()" style="font-size: 12px; padding: 8px 16px;">⬇️ PC'ye İndir</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </main>
-    </div>
-
-    <script>
+                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #0307    <script>
         let allSmsMessages = [];
         let activeThreadAddress = null;
         let isPhoneRinging = false;
         let isSeekingMedia = false;
         let currentMediaDuration = 0;
+        let connectedDevices = [];
+        let activeGlobalDeviceId = "all";
+        let activeSmsFilterDeviceId = "all";
+        let activeNotifFilterDeviceId = "all";
+        let allNotifications = [];
 
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(function(el) { el.classList.remove('active'); });
@@ -3448,13 +4039,260 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadPhotosList();
             } else if (tabId === 'screen') {
                 setupScreenTouch();
+                setupScreenKeyboard();
+                setupScreenDragAndDrop();
             }
+        }
+
+        function updateDeviceSelectors(devices) {
+            connectedDevices = devices || [];
+
+            const dropdownConfigs = [
+                { id: 'globalDeviceSelector', defaultLabel: '🌐 Tüm Cihazlar', defaultValue: 'all' },
+                { id: 'callDeviceSelector', defaultLabel: 'Otomatik (Varsayılan)', defaultValue: 'all' },
+                { id: 'smsSendDeviceSelector', defaultLabel: 'Otomatik', defaultValue: 'all' },
+                { id: 'clipDeviceSelector', defaultLabel: '🌐 Tüm Cihazlar (Mesh Pano)', defaultValue: 'all' },
+                { id: 'fileDeviceSelector', defaultLabel: '🌐 Tüm Bağlı Telefonlar', defaultValue: 'all' },
+                { id: 'contactsDeviceSelector', defaultLabel: '🌐 Tüm Cihazların Rehberi', defaultValue: 'all' },
+                { id: 'tabDeviceSelector', defaultLabel: '🌐 Tüm Telefonlarda Aç', defaultValue: 'all' },
+                { id: 'photosDeviceSelector', defaultLabel: '🌐 Tüm Telefonlar', defaultValue: 'all' },
+                { id: 'screenDeviceSelector', defaultLabel: 'Cihaz Seçin...', defaultValue: '' },
+                { id: 'networkDeviceSelector', defaultLabel: 'Otomatik (Varsayılan Cihaz)', defaultValue: 'all' }
+            ];
+
+            dropdownConfigs.forEach(function(cfg) {
+                const el = document.getElementById(cfg.id);
+                if (!el) return;
+                const prevVal = el.value;
+                el.innerHTML = '<option value="' + cfg.defaultValue + '">' + cfg.defaultLabel + '</option>';
+                connectedDevices.forEach(function(d) {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    const name = (d.model || d.name || 'Android');
+                    const ip = d.ip ? ' (' + d.ip + ')' : '';
+                    opt.textContent = '📱 ' + name + ip;
+                    el.appendChild(opt);
+                });
+
+                // Auto-select or restore
+                if (prevVal && Array.from(el.options).some(o => o.value === prevVal)) {
+                    el.value = prevVal;
+                } else if (connectedDevices.length === 1) {
+                    el.value = connectedDevices[0].id;
+                } else {
+                    el.value = cfg.defaultValue;
+                }
+            });
+
+            // Update SMS Filter Pills
+            const smsFilterContainer = document.getElementById('smsDeviceFilterTabs');
+            if (smsFilterContainer) {
+                let html = '<button class="device-filter-pill' + (activeSmsFilterDeviceId === 'all' ? ' active' : '') + '" onclick="filterSmsByDevice(\'all\', this)">🌐 Tümü</button>';
+                connectedDevices.forEach(function(d) {
+                    const activeClass = (activeSmsFilterDeviceId === d.id ? ' active' : '');
+                    const name = d.model || d.name || 'Cihaz';
+                    html += '<button class="device-filter-pill' + activeClass + '" onclick="filterSmsByDevice(\'' + d.id + '\', this)">📱 ' + escapeHtml(name) + '</button>';
+                });
+                smsFilterContainer.innerHTML = html;
+            }
+
+            // Update Notifications Filter Pills
+            const notifFilterContainer = document.getElementById('notifDeviceFilterContainer');
+            if (notifFilterContainer) {
+                let html = '<button class="device-filter-pill' + (activeNotifFilterDeviceId === 'all' ? ' active' : '') + '" onclick="filterNotifsByDevice(\'all\', this)">🌐 Tümü</button>';
+                connectedDevices.forEach(function(d) {
+                    const activeClass = (activeNotifFilterDeviceId === d.id ? ' active' : '');
+                    const name = d.model || d.name || 'Cihaz';
+                    html += '<button class="device-filter-pill' + activeClass + '" onclick="filterNotifsByDevice(\'' + d.id + '\', this)">📱 ' + escapeHtml(name) + '</button>';
+                });
+                notifFilterContainer.innerHTML = html;
+            }
+        }
+
+        function onGlobalDeviceChange(devId) {
+            activeGlobalDeviceId = devId;
+            const globalEl = document.getElementById('globalDeviceSelector');
+            if (globalEl) globalEl.value = devId;
+
+            const selectors = ['callDeviceSelector', 'smsSendDeviceSelector', 'clipDeviceSelector', 'fileDeviceSelector', 'contactsDeviceSelector', 'tabDeviceSelector', 'photosDeviceSelector', 'networkDeviceSelector'];
+            selectors.forEach(function(id) {
+                const el = document.getElementById(id);
+                if (el) {
+                    const exists = Array.from(el.options).some(o => o.value === devId);
+                    el.value = (exists && devId !== 'all') ? devId : 'all';
+                }
+            });
+
+            const screenEl = document.getElementById('screenDeviceSelector');
+            if (screenEl && devId !== 'all') {
+                const exists = Array.from(screenEl.options).some(o => o.value === devId);
+                if (exists) {
+                    screenEl.value = devId;
+                    if (isScreenMirroring) {
+                        toggleScreenMirror(false);
+                        setTimeout(() => toggleScreenMirror(true), 300);
+                    }
+                }
+            }
+
+            if (devId !== 'all') {
+                activeSmsFilterDeviceId = devId;
+                activeNotifFilterDeviceId = devId;
+            } else {
+                activeSmsFilterDeviceId = 'all';
+                activeNotifFilterDeviceId = 'all';
+            }
+
+            renderSmsThreads();
+            renderNotifications();
+            renderContacts(allContacts);
+            renderPhotos(getFilteredPhotos());
+            renderOverviewDevicesGrid(connectedDevices);
+        }
+
+        function selectDeviceAndSwitch(devId, tab) {
+            onGlobalDeviceChange(devId);
+            switchTab(tab);
+        }
+
+        function renderOverviewDevicesGrid(devices) {
+            const container = document.getElementById('overviewDevicesGrid');
+            const countBadge = document.getElementById('overviewDevCount');
+            if (!container) return;
+
+            const devList = devices || [];
+            if (countBadge) countBadge.innerText = devList.length + ' Cihaz';
+
+            if (devList.length === 0) {
+                container.innerHTML = '<div class="card" style="padding:24px; text-align:center; color:var(--text-muted);">' +
+                    '<div style="font-size:32px; margin-bottom:8px;">📱</div>' +
+                    '<div style="font-size:14px; font-weight:700; color:var(--text-primary);">Bağlantı Aranıyor...</div>' +
+                    '<div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Wi-Fi eşleşmesi bekleniyor</div>' +
+                '</div>';
+                return;
+            }
+
+            container.innerHTML = devList.map(function(d) {
+                const isSelected = (activeGlobalDeviceId === d.id);
+                const chargingStr = d.is_charging ? '⚡ Şarj Oluyor' : 'Pilde Çalışıyor';
+                const batVal = d.battery_level >= 0 ? d.battery_level : 0;
+                const batPct = d.battery_level >= 0 ? d.battery_level + '%' : '--%';
+                const name = escapeHtml(d.model || d.name || 'Android Cihaz');
+                const ipStr = escapeHtml(d.ip || d.remote_addr || 'Wi-Fi');
+
+                return '<div class="device-card-item' + (isSelected ? ' selected' : '') + '">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:12px;">' +
+                        '<div style="display:flex; align-items:center; gap:12px;">' +
+                            '<div style="width:44px; height:44px; border-radius:12px; background:linear-gradient(135deg, rgba(56,189,248,0.2), rgba(99,102,241,0.2)); border:1px solid rgba(56,189,248,0.3); display:flex; align-items:center; justify-content:center; font-size:22px;">📱</div>' +
+                            '<div>' +
+                                '<div style="font-size:15px; font-weight:800; color:var(--text-primary); display:flex; align-items:center; gap:6px;">' +
+                                    name + (d.is_charging ? '<span style="color:#10B981; font-size:12px;">⚡</span>' : '') +
+                                '</div>' +
+                                '<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">' +
+                                    ipStr + ' • ' + batPct +
+                                '</div>' +
+                            '</div>' +
+                        '</div>' +
+                        '<span class="status-pill" style="font-size:10px; padding:3px 8px;">🟢 Çevrimiçi</span>' +
+                    '</div>' +
+                    '<div style="background:rgba(0,0,0,0.25); border-radius:var(--radius-sm); padding:10px 12px; margin-bottom:12px;">' +
+                        '<div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:6px;">' +
+                            '<span style="color:var(--text-secondary);">' + chargingStr + '</span>' +
+                            '<strong style="color:var(--accent-green);">' + batPct + '</strong>' +
+                        '</div>' +
+                        '<div style="width:100%; height:6px; background:rgba(255,255,255,0.1); border-radius:99px; overflow:hidden;">' +
+                            '<div style="width:' + batVal + '%; height:100%; background:linear-gradient(90deg, #10B981, #38BDF8); transition:width 0.5s;"></div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display:flex; gap:6px; margin-bottom:10px;">' +
+                        '<button class="btn" style="flex:1; padding:5px 8px; font-size:11px;" onclick="sendPhoneCmd(\'VOLUME_UP\', \'' + d.id + '\')">🔊 Ses +</button>' +
+                        '<button class="btn" style="flex:1; padding:5px 8px; font-size:11px;" onclick="sendPhoneCmd(\'VOLUME_DOWN\', \'' + d.id + '\')">🔉 Ses -</button>' +
+                        '<button class="btn" style="flex:1; padding:5px 8px; font-size:11px;" onclick="sendPhoneCmd(\'MUTE\', \'' + d.id + '\')">🔇 Sessiz</button>' +
+                    '</div>' +
+                    '<div style="display:flex; gap:6px; border-top:1px solid rgba(255,255,255,0.06); padding-top:10px;">' +
+                        '<button class="btn btn-secondary" style="flex:1; padding:5px 8px; font-size:11px;" onclick="selectDeviceAndSwitch(\'' + d.id + '\', \'screen\')">📱 Ekran</button>' +
+                        '<button class="btn btn-secondary" style="flex:1; padding:5px 8px; font-size:11px;" onclick="selectDeviceAndSwitch(\'' + d.id + '\', \'sms\')">💬 SMS</button>' +
+                        '<button class="btn ' + (isSelected ? 'btn-primary' : 'btn-secondary') + '" style="flex:1; padding:5px 8px; font-size:11px;" onclick="onGlobalDeviceChange(\'' + d.id + '\')">🎯 Yönet</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        function renderMultiDeviceMedia(devices) {
+            const container = document.getElementById('multiDevicePhoneMediaContainer');
+            if (!container) return;
+
+            const devList = devices || [];
+            if (devList.length === 0) {
+                container.innerHTML = '<div class="card" style="padding:24px; text-align:center; color:var(--text-muted);">' +
+                    '<div style="font-size:32px; margin-bottom:8px;">🎵</div>' +
+                    '<div style="font-size:14px; font-weight:700;">Telefonda Çalan Medya Yok</div>' +
+                    '<div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">Bağlı bir Android cihazda müzik veya video açın</div>' +
+                '</div>';
+                return;
+            }
+
+            container.innerHTML = devList.map(function(d) {
+                const m = d.media || {};
+                const isPlaying = m.is_playing;
+                const statusTag = isPlaying ? 'OYNATILIYOR 🟢' : (m.title ? 'DURAKLATILDI ⏸' : 'BEKLEMEDE ⚪');
+                const title = escapeHtml(m.title || 'Müzik Çalınmıyor');
+                const artist = escapeHtml(m.artist || m.album || (d.model || d.name || 'Telefonda müzik açın'));
+                const duration = m.duration_ms || 0;
+                const position = m.position_ms || 0;
+                const curStr = formatMs(position);
+                const totalStr = formatMs(duration);
+                const pct = (duration > 0) ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
+                const devName = escapeHtml(d.model || d.name || 'Android');
+
+                return '<div class="card" style="margin-bottom:0;">' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">' +
+                        '<div style="display:flex; align-items:center; gap:8px;">' +
+                            '<h3 style="font-size:16px; font-weight:700;">📱 ' + devName + '</h3>' +
+                            '<span class="device-tag">Android</span>' +
+                        '</div>' +
+                        '<span style="font-size:11px; background:rgba(16,185,129,0.15); color:var(--accent-green); padding:3px 8px; border-radius:4px; font-weight:700;">' + statusTag + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex; align-items:center; gap:16px; background:rgba(0,0,0,0.3); padding:16px; border-radius:var(--radius-lg); margin-bottom:14px;">' +
+                        '<div style="width:60px; height:60px; border-radius:var(--radius-md); background:linear-gradient(135deg, #10B981, #059669); display:flex; align-items:center; justify-content:center; font-size:26px; box-shadow:0 6px 20px rgba(16,185,129,0.25); flex-shrink:0;">🎵</div>' +
+                        '<div style="flex:1; overflow:hidden;">' +
+                            '<div style="font-size:10px; font-weight:700; color:var(--accent-green); text-transform:uppercase; margin-bottom:2px;">MEDYA OYNATICI</div>' +
+                            '<h3 style="font-size:16px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + title + '</h3>' +
+                            '<p style="font-size:12px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + artist + '</p>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="margin-bottom:14px; background:rgba(0,0,0,0.2); padding:12px; border-radius:var(--radius-md);">' +
+                        '<input type="range" min="0" max="100" value="' + pct + '" style="width:100%; accent-color:#10B981; cursor:pointer;" onchange="seekPhoneMedia(this.value, \'' + d.id + '\')">' +
+                        '<div style="display:flex; justify-content:space-between; font-size:11px; color:var(--text-secondary); margin-top:4px;">' +
+                            '<span>' + curStr + '</span>' +
+                            '<span>' + totalStr + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:center; gap:6px; flex-wrap:wrap; margin-bottom:10px;">' +
+                        '<button class="btn" style="padding:8px 14px; font-size:12px;" onclick="seekPhoneRelative(-15, \'' + d.id + '\')">⏪ 15s</button>' +
+                        '<button class="btn" style="padding:8px 14px; font-size:12px;" onclick="sendPhoneCmd(\'PREV\', \'' + d.id + '\')">⏮ Önceki</button>' +
+                        '<button class="btn btn-primary" style="padding:8px 18px; font-size:12px; background:#10B981;" onclick="sendPhoneCmd(\'PLAY_PAUSE\', \'' + d.id + '\')">⏯ ' + (isPlaying ? 'Duraklat' : 'Oynat') + '</button>' +
+                        '<button class="btn" style="padding:8px 14px; font-size:12px;" onclick="sendPhoneCmd(\'NEXT\', \'' + d.id + '\')">⏭ Sonraki</button>' +
+                        '<button class="btn" style="padding:8px 14px; font-size:12px;" onclick="seekPhoneRelative(15, \'' + d.id + '\')">⏩ 15s</button>' +
+                    '</div>' +
+                    '<div style="display:flex; justify-content:center; gap:8px;">' +
+                        '<button class="btn" style="padding:6px 12px; font-size:11px;" onclick="sendPhoneCmd(\'VOLUME_DOWN\', \'' + d.id + '\')">🔉 Ses -</button>' +
+                        '<button class="btn" style="padding:6px 12px; font-size:11px;" onclick="sendPhoneCmd(\'VOLUME_UP\', \'' + d.id + '\')">🔊 Ses +</button>' +
+                        '<button class="btn" style="padding:6px 12px; font-size:11px;" onclick="sendPhoneCmd(\'MUTE\', \'' + d.id + '\')">🔇 Sessiz</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
         }
 
         async function updateStatus() {
             try {
                 const res = await fetch('/status');
                 const data = await res.json();
+
+                // Multi-device sync
+                updateDeviceSelectors(data.devices || []);
+                renderOverviewDevicesGrid(data.devices || []);
+                renderMultiDeviceMedia(data.devices || []);
 
                 // Status Pill
                 const badge = document.getElementById('statusBadge');
@@ -3487,14 +4325,6 @@ const dashboardHTML = `<!DOCTYPE html>
                     }
                 }
 
-                // Device Info
-                if (data.device_name || data.model) {
-                    document.getElementById('devName').innerText = (data.model || data.device_name);
-                    document.getElementById('devSub').innerText = (data.is_charging ? '⚡ Şarj Oluyor' : 'Pilde Çalışıyor');
-                    document.getElementById('devBattery').innerText = (data.battery_level >= 0 ? data.battery_level + '%' : '--%');
-                    document.getElementById('devBatteryBar').style.width = (data.battery_level >= 0 ? data.battery_level + '%' : '0%');
-                }
-
                 // Contacts Count
                 if (data.contacts_count !== undefined) {
                     const cBadge = document.getElementById('contactsNavBadge');
@@ -3508,7 +4338,7 @@ const dashboardHTML = `<!DOCTYPE html>
                     handleCallState(data.call_state, data.call_duration_sec);
                 }
 
-                // 1. PC Media Update
+                // PC Media Update
                 const pcMedia = data.pc_media;
                 if (pcMedia && (pcMedia.title || pcMedia.artist)) {
                     const pcTitle = pcMedia.title || 'Bilinmeyen Parça';
@@ -3561,67 +4391,6 @@ const dashboardHTML = `<!DOCTYPE html>
                     if (fullPCTagEl) fullPCTagEl.innerText = 'BEKLEMEDE ⚪';
                 }
 
-                // 2. Phone Media Update
-                const phoneMedia = data.phone_media;
-                if (phoneMedia && (phoneMedia.title || phoneMedia.artist)) {
-                    const phoneTitle = phoneMedia.title || 'Bilinmeyen Şarkı';
-                    const phoneArtist = phoneMedia.artist || phoneMedia.album || 'Bilinmeyen Sanatçı';
-                    const phonePlayingStr = phoneMedia.is_playing ? 'OYNATILIYOR 🟢' : 'DURAKLATILDI ⏸';
-
-                    const phoneTrackTitleEl = document.getElementById('phoneTrackTitle');
-                    if (phoneTrackTitleEl) phoneTrackTitleEl.innerText = phoneTitle;
-                    const phoneTrackArtistEl = document.getElementById('phoneTrackArtist');
-                    if (phoneTrackArtistEl) phoneTrackArtistEl.innerText = phoneArtist;
-                    const fullPhoneTitleEl = document.getElementById('fullPhoneTitle');
-                    if (fullPhoneTitleEl) fullPhoneTitleEl.innerText = phoneTitle;
-                    const fullPhoneArtistEl = document.getElementById('fullPhoneArtist');
-                    if (fullPhoneArtistEl) fullPhoneArtistEl.innerText = phoneArtist;
-
-                    const phoneMediaTagEl = document.getElementById('phoneMediaTag');
-                    if (phoneMediaTagEl) phoneMediaTagEl.innerText = phonePlayingStr;
-                    const phoneStatusBadgeEl = document.getElementById('phoneMediaStatusBadge');
-                    if (phoneStatusBadgeEl) phoneStatusBadgeEl.innerText = phonePlayingStr;
-                    const fullPhoneTagEl = document.getElementById('fullPhoneTag');
-                    if (fullPhoneTagEl) fullPhoneTagEl.innerText = phonePlayingStr;
-                    const fullPhoneStatusEl = document.getElementById('fullPhoneStatus');
-                    if (fullPhoneStatusEl) fullPhoneStatusEl.innerText = phonePlayingStr;
-
-                    currentPhoneMediaDuration = phoneMedia.duration_ms || 0;
-                    const phoneCurTimeStr = formatMs(phoneMedia.position_ms || 0);
-                    const phoneTotalTimeStr = formatMs(phoneMedia.duration_ms || 0);
-
-                    const phoneCur = document.getElementById('phoneMediaCurTime');
-                    if (phoneCur) phoneCur.innerText = phoneCurTimeStr;
-                    const phoneTotal = document.getElementById('phoneMediaTotalTime');
-                    if (phoneTotal) phoneTotal.innerText = phoneTotalTimeStr;
-
-                    const fullPhoneCur = document.getElementById('fullPhoneMediaCurTime');
-                    if (fullPhoneCur) fullPhoneCur.innerText = phoneCurTimeStr;
-                    const fullPhoneTotal = document.getElementById('fullPhoneMediaTotalTime');
-                    if (fullPhoneTotal) fullPhoneTotal.innerText = phoneTotalTimeStr;
-
-                    if (!isSeekingPhoneMedia && phoneMedia.duration_ms > 0) {
-                        const pct = Math.min(100, Math.max(0, (phoneMedia.position_ms / phoneMedia.duration_ms) * 100));
-                        const seekEl = document.getElementById('phoneMediaSeek');
-                        if (seekEl) seekEl.value = pct;
-                        const fullSeekEl = document.getElementById('fullPhoneMediaSeek');
-                        if (fullSeekEl) fullSeekEl.value = pct;
-                    }
-                } else {
-                    const phoneTrackTitleEl = document.getElementById('phoneTrackTitle');
-                    if (phoneTrackTitleEl) phoneTrackTitleEl.innerText = 'Telefonda Çalan Medya Yok';
-                    const phoneTrackArtistEl = document.getElementById('phoneTrackArtist');
-                    if (phoneTrackArtistEl) phoneTrackArtistEl.innerText = 'Telefonda müzik açın';
-                    const phoneMediaTagEl = document.getElementById('phoneMediaTag');
-                    if (phoneMediaTagEl) phoneMediaTagEl.innerText = 'BEKLEMEDE ⚪';
-                    const phoneStatusBadgeEl = document.getElementById('phoneMediaStatusBadge');
-                    if (phoneStatusBadgeEl) phoneStatusBadgeEl.innerText = 'BEKLEMEDE ⚪';
-                    const fullPhoneTagEl = document.getElementById('fullPhoneTag');
-                    if (fullPhoneTagEl) fullPhoneTagEl.innerText = 'BEKLEMEDE ⚪';
-                    const fullPhoneStatusEl = document.getElementById('fullPhoneStatus');
-                    if (fullPhoneStatusEl) fullPhoneStatusEl.innerText = 'BEKLEMEDE ⚪';
-                }
-
                 // Clipboard
                 if (data.clipboard_image) {
                     const wrap = document.getElementById('clipImageWrapper');
@@ -3647,60 +4416,9 @@ const dashboardHTML = `<!DOCTYPE html>
                     document.getElementById('fullClipBox').innerText = data.clipboard;
                 }
 
-                // Notifications (Both Full Tab and Overview Tab)
-                if (data.notifications && data.notifications.length > 0) {
-                    document.getElementById('notifBadgeFull').innerText = data.notifications.length + ' Bildirim';
-                    const listEl = document.getElementById('fullNotifList');
-                    if (listEl) {
-                        listEl.innerHTML = data.notifications.map(function(n) {
-                            var replyBox = '';
-                            if (n.can_reply && n.key) {
-                                replyBox = '<div style="margin-top:10px; display:flex; gap:8px;">' +
-                                    '<input type="text" id="replyInput_' + escapeHtml(n.id) + '" placeholder="Yanıt yazın..." style="flex:1; background:var(--bg-input); border:1px solid var(--border-card); border-radius:var(--radius-sm); padding:6px 12px; color:var(--text-primary); font-size:12px; outline:none;" onkeydown="if(event.key===\'Enter\') sendNotificationReply(\'' + escapeHtml(n.key) + '\', \'' + escapeHtml(n.id) + '\')">' +
-                                    '<button class="btn btn-primary" style="font-size:12px; padding:6px 14px;" onclick="sendNotificationReply(\'' + escapeHtml(n.key) + '\', \'' + escapeHtml(n.id) + '\')">Yanıtla</button>' +
-                                '</div>';
-                            }
-                            var actionsBox = '';
-                            if (n.actions && n.actions.length > 0 && n.key) {
-                                actionsBox = '<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">' +
-                                    n.actions.filter(function(a) { return !a.is_reply; }).map(function(a) {
-                                        return '<button class="btn btn-secondary" style="font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" onclick="triggerNotificationAction(\'' + escapeHtml(n.key) + '\', ' + a.index + ', this)">⚡ ' +
-                                            escapeHtml(a.title) +
-                                        '</button>';
-                                    }).join('') +
-                                '</div>';
-                            }
-                            return '<div class="notif-item-card" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px; position:relative; transition:all 0.3s ease;">' +
-                                '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
-                                    '<strong style="color:var(--accent-blue); font-size:13px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
-                                    '<div style="display:flex; align-items:center; gap:8px;">' +
-                                        '<span style="font-size:11px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
-                                        '<button title="Bildirimi Kapat (Telefonda da silinir)" onclick="dismissNotification(\'' + escapeHtml(n.key || '') + '\', \'' + escapeHtml(n.id || '') + '\', this)" style="background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.color=\'var(--accent-red)\'; this.style.background=\'rgba(248,81,73,0.15)\'" onmouseout="this.style.color=\'var(--text-muted)\'; this.style.background=\'none\'">✕</button>' +
-                                    '</div>' +
-                                '</div>' +
-                                '<div style="font-weight:700; font-size:14px;">' + escapeHtml(n.title || '') + '</div>' +
-                                '<div style="font-size:13px; color:var(--text-secondary); margin-top:2px;">' + escapeHtml(n.text || '') + '</div>' +
-                                actionsBox +
-                                replyBox +
-                            '</div>';
-                        }).join('');
-                    }
-
-                    // Render Quick Notifications on Overview
-                    const quickNotifsEl = document.getElementById('quickNotifList');
-                    if (quickNotifsEl) {
-                        quickNotifsEl.innerHTML = data.notifications.slice(0, 3).map(function(n) {
-                            return '<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; cursor:pointer;" onclick="switchTab(\'notifications\')">' +
-                                '<div style="display:flex; justify-content:space-between; margin-bottom:2px;">' +
-                                    '<strong style="color:var(--accent-blue); font-size:12px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
-                                    '<span style="font-size:10px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
-                                '</div>' +
-                                '<div style="font-weight:700; font-size:13px;">' + escapeHtml(n.title || '') + '</div>' +
-                                '<div style="font-size:12px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(n.text || '') + '</div>' +
-                            '</div>';
-                        }).join('');
-                    }
-                }
+                // Notifications
+                allNotifications = data.notifications || [];
+                renderNotifications();
 
                 // Files count badge
                 if (data.files_count !== undefined) {
@@ -3713,7 +4431,90 @@ const dashboardHTML = `<!DOCTYPE html>
                     document.getElementById('smsNavBadge').innerText = data.sms_count;
                 }
             } catch (e) {
-                console.error(e);
+                console.error('Status fetch error:', e);
+            }
+        }
+
+        function filterNotifsByDevice(devId, btn) {
+            activeNotifFilterDeviceId = devId;
+            document.querySelectorAll('#notifDeviceFilterContainer .device-filter-pill').forEach(function(el) {
+                el.classList.remove('active');
+            });
+            if (btn) btn.classList.add('active');
+            renderNotifications();
+        }
+
+        function renderNotifications() {
+            const listEl = document.getElementById('fullNotifList');
+            const badgeFull = document.getElementById('notifBadgeFull');
+            const quickNotifsEl = document.getElementById('quickNotifList');
+
+            const filtered = (activeNotifFilterDeviceId && activeNotifFilterDeviceId !== 'all')
+                ? allNotifications.filter(n => n.device_id === activeNotifFilterDeviceId)
+                : allNotifications;
+
+            if (badgeFull) badgeFull.innerText = filtered.length + ' Bildirim';
+
+            if (!filtered || filtered.length === 0) {
+                if (listEl) listEl.innerHTML = '<p style="color:var(--text-muted); font-size:14px; text-align:center; padding:40px;">Henüz gelen bildirim yok.</p>';
+                if (quickNotifsEl) quickNotifsEl.innerHTML = '<p style="color:var(--text-muted); font-size:13px;">Gelen bildirim bulunamadı.</p>';
+                return;
+            }
+
+            if (listEl) {
+                listEl.innerHTML = filtered.map(function(n) {
+                    var replyBox = '';
+                    if (n.can_reply && n.key) {
+                        replyBox = '<div style="margin-top:10px; display:flex; gap:8px;">' +
+                            '<input type="text" id="replyInput_' + escapeHtml(n.id) + '" placeholder="Yanıt yazın..." style="flex:1; background:var(--bg-input); border:1px solid var(--border-card); border-radius:var(--radius-sm); padding:6px 12px; color:var(--text-primary); font-size:12px; outline:none;" onkeydown="if(event.key===\'Enter\') sendNotificationReply(\'' + escapeHtml(n.key) + '\', \'' + escapeHtml(n.id) + '\', \'' + escapeHtml(n.device_id || '') + '\')">' +
+                            '<button class="btn btn-primary" style="font-size:12px; padding:6px 14px;" onclick="sendNotificationReply(\'' + escapeHtml(n.key) + '\', \'' + escapeHtml(n.id) + '\', \'' + escapeHtml(n.device_id || '') + '\')">Yanıtla</button>' +
+                        '</div>';
+                    }
+                    var actionsBox = '';
+                    if (n.actions && n.actions.length > 0 && n.key) {
+                        actionsBox = '<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">' +
+                            n.actions.filter(function(a) { return !a.is_reply; }).map(function(a) {
+                                return '<button class="btn btn-secondary" style="font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" onclick="triggerNotificationAction(\'' + escapeHtml(n.key) + '\', ' + a.index + ', this, \'' + escapeHtml(n.device_id || '') + '\')">⚡ ' +
+                                    escapeHtml(a.title) +
+                                '</button>';
+                            }).join('') +
+                        '</div>';
+                    }
+                    var devTag = n.device_name ? '<span class="device-tag">📱 ' + escapeHtml(n.device_name) + '</span>' : '';
+                    return '<div class="notif-item-card" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px; position:relative; transition:all 0.3s ease;">' +
+                        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">' +
+                            '<div style="display:flex; align-items:center; gap:8px;">' +
+                                '<strong style="color:var(--accent-blue); font-size:13px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
+                                devTag +
+                            '</div>' +
+                            '<div style="display:flex; align-items:center; gap:8px;">' +
+                                '<span style="font-size:11px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
+                                '<button title="Bildirimi Kapat (Telefonda da silinir)" onclick="dismissNotification(\'' + escapeHtml(n.key || '') + '\', \'' + escapeHtml(n.id || '') + '\', this, \'' + escapeHtml(n.device_id || '') + '\')" style="background:none; border:none; color:var(--text-muted); font-size:14px; cursor:pointer; padding:2px 6px; border-radius:4px; line-height:1; transition:all 0.2s;" onmouseover="this.style.color=\'var(--accent-red)\'; this.style.background=\'rgba(248,81,73,0.15)\'" onmouseout="this.style.color=\'var(--text-muted)\'; this.style.background=\'none\'">✕</button>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="font-weight:700; font-size:14px;">' + escapeHtml(n.title || '') + '</div>' +
+                        '<div style="font-size:13px; color:var(--text-secondary); margin-top:2px;">' + escapeHtml(n.text || '') + '</div>' +
+                        actionsBox +
+                        replyBox +
+                    '</div>';
+                }).join('');
+            }
+
+            if (quickNotifsEl) {
+                quickNotifsEl.innerHTML = filtered.slice(0, 3).map(function(n) {
+                    var devTag = n.device_name ? '<span class="device-tag" style="font-size:9px; padding:1px 6px;">📱 ' + escapeHtml(n.device_name) + '</span>' : '';
+                    return '<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:8px; padding:10px; cursor:pointer;" onclick="switchTab(\'notifications\')">' +
+                        '<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:2px;">' +
+                            '<div style="display:flex; align-items:center; gap:6px;">' +
+                                '<strong style="color:var(--accent-blue); font-size:12px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
+                                devTag +
+                            '</div>' +
+                            '<span style="font-size:10px; color:var(--text-muted);">' + formatTime(n.timestamp) + '</span>' +
+                        '</div>' +
+                        '<div style="font-weight:700; font-size:13px;">' + escapeHtml(n.title || '') + '</div>' +
+                        '<div style="font-size:12px; color:var(--text-secondary); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(n.text || '') + '</div>' +
+                    '</div>';
+                }).join('');
             }
         }
 
@@ -3721,12 +4522,16 @@ const dashboardHTML = `<!DOCTYPE html>
             const overlay = document.getElementById('incomingCallOverlay');
             const activeBar = document.getElementById('activeCallBar');
             const callBadge = document.getElementById('callNavBadge');
+            const callerDevEl = document.getElementById('incomingCallerDevice');
 
             if (call.state === 'RINGING') {
                 overlay.style.display = 'block';
                 activeBar.style.display = 'none';
                 callBadge.style.display = 'inline-block';
                 callBadge.innerText = 'Çalıyor';
+                if (callerDevEl) {
+                    callerDevEl.innerText = call.device_name ? '📱 Gelen Hat: ' + call.device_name : '';
+                }
                 document.getElementById('incomingCallerName').innerText = call.caller_name || call.phone_number || 'Bilinmeyen Arayan';
                 document.getElementById('incomingCallerNumber').innerText = call.phone_number ? 'Gelen Çağrı: ' + call.phone_number : 'Gelen Çağrı...';
             } else if (call.state === 'OFFHOOK') {
@@ -3737,7 +4542,8 @@ const dashboardHTML = `<!DOCTYPE html>
                 const mins = Math.floor((durationSec || 0) / 60).toString().padStart(2, '0');
                 const secs = Math.floor((durationSec || 0) % 60).toString().padStart(2, '0');
                 document.getElementById('activeCallTimer').innerText = 'Süre: ' + mins + ':' + secs;
-                document.getElementById('activeCallTitle').innerText = '🟢 ' + (call.caller_name || call.phone_number || 'Arama');
+                const devSuffix = call.device_name ? ' (' + call.device_name + ')' : '';
+                document.getElementById('activeCallTitle').innerText = '🟢 ' + (call.caller_name || call.phone_number || 'Arama') + devSuffix;
             } else {
                 overlay.style.display = 'none';
                 activeBar.style.display = 'none';
@@ -3745,11 +4551,13 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function callAction(action, number, value) {
+        async function callAction(action, number, value, devId) {
             try {
+                devId = devId || document.getElementById('callDeviceSelector')?.value || activeGlobalDeviceId;
                 let url = '/call/action?action=' + encodeURIComponent(action);
                 if (number) url += '&number=' + encodeURIComponent(number);
                 if (value !== undefined) url += '&value=' + encodeURIComponent(value);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
                 await fetch(url);
                 updateStatus();
             } catch (e) {
@@ -3764,21 +4572,26 @@ const dashboardHTML = `<!DOCTYPE html>
 
         function dialNumber() {
             const num = document.getElementById('dialInput').value.trim();
+            const devId = document.getElementById('callDeviceSelector')?.value || activeGlobalDeviceId;
             if (num) {
-                callAction('DIAL', num);
+                callAction('DIAL', num, undefined, devId);
             }
         }
 
         function dialActiveChat() {
             if (activeThreadAddress) {
-                callAction('DIAL', activeThreadAddress);
+                const devId = document.getElementById('callDeviceSelector')?.value || activeGlobalDeviceId;
+                callAction('DIAL', activeThreadAddress, undefined, devId);
             }
         }
 
         // SMS Functions
-        async function loadSmsList() {
+        async function loadSmsList(devId) {
             try {
-                const res = await fetch('/sms/list');
+                devId = devId || activeGlobalDeviceId;
+                let url = '/sms/list';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const data = await res.json();
                 allSmsMessages = data.messages || [];
                 renderSmsThreads();
@@ -3788,6 +4601,15 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        function filterSmsByDevice(devId, btn) {
+            activeSmsFilterDeviceId = devId;
+            document.querySelectorAll('#smsDeviceFilterTabs .device-filter-pill').forEach(function(el) {
+                el.classList.remove('active');
+            });
+            if (btn) btn.classList.add('active');
+            renderSmsThreads();
+        }
+
         function renderQuickSms() {
             const el = document.getElementById('quickSmsList');
             if (!allSmsMessages.length) {
@@ -3795,9 +4617,13 @@ const dashboardHTML = `<!DOCTYPE html>
                 return;
             }
             el.innerHTML = allSmsMessages.slice(0, 3).map(function(m) {
+                const devTag = m.device_name ? '<span class="device-tag" style="font-size:9px; padding:1px 6px;">📱 ' + escapeHtml(m.device_name) + '</span>' : '';
                 return '<div style="background:rgba(255,255,255,0.03); border-radius:8px; padding:10px; cursor:pointer;" onclick="switchTab(\'sms\')">' +
-                    '<div style="display:flex; justify-content:space-between; font-size:12px; margin-bottom:2px;">' +
-                        '<strong style="color:var(--accent-blue);">' + escapeHtml(m.contact_name || m.address) + '</strong>' +
+                    '<div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; margin-bottom:2px;">' +
+                        '<div style="display:flex; align-items:center; gap:6px;">' +
+                            '<strong style="color:var(--accent-blue);">' + escapeHtml(m.contact_name || m.address) + '</strong>' +
+                            devTag +
+                        '</div>' +
                         '<span style="color:var(--text-muted); font-size:10px;">' + formatTime(m.timestamp) + '</span>' +
                     '</div>' +
                     '<div style="font-size:12px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(m.body) + '</div>' +
@@ -3807,7 +4633,11 @@ const dashboardHTML = `<!DOCTYPE html>
 
         function renderSmsThreads() {
             const threadsMap = {};
-            allSmsMessages.forEach(function(m) {
+            const filtered = (activeSmsFilterDeviceId && activeSmsFilterDeviceId !== 'all')
+                ? allSmsMessages.filter(m => m.device_id === activeSmsFilterDeviceId)
+                : allSmsMessages;
+
+            filtered.forEach(function(m) {
                 const key = m.address || 'Bilinmeyen';
                 if (!threadsMap[key]) {
                     threadsMap[key] = {
@@ -3815,6 +4645,8 @@ const dashboardHTML = `<!DOCTYPE html>
                         name: m.contact_name || key,
                         latestMsg: m.body,
                         timestamp: m.timestamp,
+                        deviceName: m.device_name,
+                        deviceId: m.device_id,
                         messages: []
                     };
                 }
@@ -3831,11 +4663,15 @@ const dashboardHTML = `<!DOCTYPE html>
             listEl.innerHTML = threads.map(function(t) {
                 const initial = (t.name || t.address).charAt(0).toUpperCase();
                 const activeClass = (activeThreadAddress === t.address ? ' active' : '');
+                const devBadge = t.deviceName ? '<span class="device-tag" style="font-size:9px; padding:1px 5px;">📱 ' + escapeHtml(t.deviceName) + '</span>' : '';
                 return '<li class="thread-item' + activeClass + '" onclick="selectThread(\'' + escapeHtml(t.address) + '\')">' +
                     '<div class="thread-avatar">' + initial + '</div>' +
                     '<div class="thread-info">' +
                         '<div class="thread-title-row">' +
-                            '<span class="thread-name">' + escapeHtml(t.name) + '</span>' +
+                            '<div style="display:flex; align-items:center; gap:6px; overflow:hidden;">' +
+                                '<span class="thread-name">' + escapeHtml(t.name) + '</span>' +
+                                devBadge +
+                            '</div>' +
                             '<span class="thread-time">' + formatTime(t.timestamp) + '</span>' +
                         '</div>' +
                         '<div class="thread-preview">' + escapeHtml(t.latestMsg) + '</div>' +
@@ -3856,16 +4692,26 @@ const dashboardHTML = `<!DOCTYPE html>
                 .sort(function(a,b) { return a.timestamp - b.timestamp; });
 
             const contactName = (threadMsgs[0] && threadMsgs[0].contact_name) ? threadMsgs[0].contact_name : address;
+            const devName = (threadMsgs[0] && threadMsgs[0].device_name) ? (' • 📱 ' + threadMsgs[0].device_name) : '';
             document.getElementById('activeChatName').innerText = contactName;
-            document.getElementById('activeChatNumber').innerText = address;
+            document.getElementById('activeChatNumber').innerText = address + devName;
             document.getElementById('activeChatAvatar').innerText = contactName.charAt(0).toUpperCase();
+
+            // Auto switch send device to match this thread's device if known
+            if (threadMsgs[0] && threadMsgs[0].device_id) {
+                const sendDevEl = document.getElementById('smsSendDeviceSelector');
+                if (sendDevEl && Array.from(sendDevEl.options).some(o => o.value === threadMsgs[0].device_id)) {
+                    sendDevEl.value = threadMsgs[0].device_id;
+                }
+            }
 
             const chatEl = document.getElementById('chatMessages');
             chatEl.innerHTML = threadMsgs.map(function(m) {
                 const bubbleClass = m.is_incoming ? 'incoming' : 'outgoing';
+                const devTag = m.device_name ? '<span class="device-tag" style="font-size:9px; margin-left:4px;">' + escapeHtml(m.device_name) + '</span>' : '';
                 return '<div class="msg-bubble ' + bubbleClass + '">' +
                     '<div>' + escapeHtml(m.body) + '</div>' +
-                    '<div class="msg-meta">' + formatTime(m.timestamp) + (!m.is_incoming ? ' ✓' : '') + '</div>' +
+                    '<div class="msg-meta">' + formatTime(m.timestamp) + (!m.is_incoming ? ' ✓' : '') + devTag + '</div>' +
                 '</div>';
             }).join('');
 
@@ -3877,12 +4723,17 @@ const dashboardHTML = `<!DOCTYPE html>
             const body = input.value.trim();
             if (!body || !activeThreadAddress) return;
 
+            const sendDevEl = document.getElementById('smsSendDeviceSelector');
+            const devId = (sendDevEl && sendDevEl.value !== 'all') ? sendDevEl.value : (activeGlobalDeviceId !== 'all' ? activeGlobalDeviceId : '');
+
             input.value = '';
             try {
+                let postBody = 'recipient=' + encodeURIComponent(activeThreadAddress) + '&body=' + encodeURIComponent(body);
+                if (devId) postBody += '&device_id=' + encodeURIComponent(devId);
                 await fetch('/sms/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'recipient=' + encodeURIComponent(activeThreadAddress) + '&body=' + encodeURIComponent(body)
+                    body: postBody
                 });
                 setTimeout(loadSmsList, 1000);
             } catch (e) {
@@ -3943,22 +4794,26 @@ const dashboardHTML = `<!DOCTYPE html>
                 const str = formatMs(cur);
                 const phoneCur = document.getElementById('phoneMediaCurTime');
                 if (phoneCur) phoneCur.innerText = str;
-                const fullPhoneCur = document.getElementById('fullPhoneMediaCurTime');
-                if (fullPhoneCur) fullPhoneCur.innerText = str;
             }
         }
 
-        async function seekPhoneMedia(val) {
+        async function seekPhoneMedia(val, devId) {
             try {
-                await fetch('/phone/command?action=SEEK_PERCENT&percent=' + encodeURIComponent(val));
+                devId = devId || activeGlobalDeviceId;
+                let url = '/phone/command?action=SEEK_PERCENT&percent=' + encodeURIComponent(val);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
             } catch (e) {}
             setTimeout(function() { isSeekingPhoneMedia = false; }, 800);
         }
 
-        async function seekPhoneRelative(deltaSec) {
+        async function seekPhoneRelative(deltaSec, devId) {
             try {
+                devId = devId || activeGlobalDeviceId;
                 const action = deltaSec > 0 ? 'SEEK_FORWARD' : 'SEEK_BACKWARD';
-                await fetch('/phone/command?action=' + action);
+                let url = '/phone/command?action=' + action;
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
             } catch (e) {}
         }
 
@@ -3976,23 +4831,29 @@ const dashboardHTML = `<!DOCTYPE html>
             return m.toString().padStart(2, '0') + ':' + s.toString().padStart(2, '0');
         }
 
-        async function sendPhoneCmd(action) {
+        async function sendPhoneCmd(action, devId) {
             try {
-                await fetch('/phone/command?action=' + encodeURIComponent(action));
+                devId = devId || activeGlobalDeviceId;
+                let url = '/phone/command?action=' + encodeURIComponent(action);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
             } catch (e) {}
         }
 
-        async function ringPhone() {
+        async function ringPhone(devId) {
             isPhoneRinging = !isPhoneRinging;
-            await sendPhoneCmd(isPhoneRinging ? 'RING' : 'STOP_RING');
+            await sendPhoneCmd(isPhoneRinging ? 'RING' : 'STOP_RING', devId);
         }
 
         async function sendCustomClipText() {
             const input = document.getElementById('customClipInput');
             const val = input.value.trim();
             if (!val) return;
+            const devId = document.getElementById('clipDeviceSelector')?.value || activeGlobalDeviceId;
             try {
-                await fetch('/clipboard/send?text=' + encodeURIComponent(val));
+                let url = '/clipboard/send?text=' + encodeURIComponent(val);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
                 input.value = '';
                 updateStatus();
             } catch (e) {}
@@ -4019,16 +4880,17 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-
-        async function sendNotificationReply(key, id) {
+        async function sendNotificationReply(key, id, devId) {
             const input = document.getElementById('replyInput_' + id);
             const text = input ? input.value.trim() : '';
             if (!text) return;
             try {
+                let postBody = 'key=' + encodeURIComponent(key) + '&text=' + encodeURIComponent(text);
+                if (devId) postBody += '&device_id=' + encodeURIComponent(devId);
                 await fetch('/notification/reply', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: 'key=' + encodeURIComponent(key) + '&text=' + encodeURIComponent(text)
+                    body: postBody
                 });
                 if (input) input.value = '';
                 alert('Yanıt telefona iletildi ✅');
@@ -4038,13 +4900,15 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function triggerNotificationAction(key, index, btn) {
+        async function triggerNotificationAction(key, index, btn, devId) {
             try {
                 if (btn) {
                     btn.disabled = true;
                     btn.style.opacity = '0.6';
                 }
-                const res = await fetch('/notification/action?key=' + encodeURIComponent(key) + '&index=' + index, { method: 'POST' });
+                let url = '/notification/action?key=' + encodeURIComponent(key) + '&index=' + index;
+                if (devId) url += '&device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url, { method: 'POST' });
                 if (res.ok) {
                     if (btn) {
                         btn.style.background = 'rgba(16, 185, 129, 0.2)';
@@ -4058,7 +4922,7 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function dismissNotification(key, id, btn) {
+        async function dismissNotification(key, id, btn, devId) {
             if (btn) {
                 btn.disabled = true;
                 const card = btn.closest('.notif-item-card');
@@ -4069,7 +4933,9 @@ const dashboardHTML = `<!DOCTYPE html>
                 }
             }
             try {
-                await fetch('/notification/dismiss?key=' + encodeURIComponent(key || '') + '&id=' + encodeURIComponent(id || ''), { method: 'POST' });
+                let url = '/notification/dismiss?key=' + encodeURIComponent(key || '') + '&id=' + encodeURIComponent(id || '');
+                if (devId) url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url, { method: 'POST' });
             } catch (e) {
                 console.error('Bildirim kapatma hatası:', e);
             }
@@ -4103,9 +4969,12 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function loadTransferredFiles() {
+        async function loadTransferredFiles(devId) {
             try {
-                const res = await fetch('/file/list');
+                devId = devId || activeGlobalDeviceId;
+                let url = '/file/list';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const data = await res.json();
                 const files = data.files || [];
                 const tbody = document.getElementById('filesTableBody');
@@ -4113,7 +4982,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 if (badge) badge.innerText = files.length;
                 if (!tbody) return;
                 if (!files.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px; text-align:center; color:var(--text-muted);">Henüz aktarılmış dosya yok</td></tr>';
                     return;
                 }
                 tbody.innerHTML = files.map(function(f) {
@@ -4121,11 +4990,13 @@ const dashboardHTML = `<!DOCTYPE html>
                     const dirIcon = isInc ? '📥 Gelen' : '📤 Giden';
                     const dirColor = isInc ? 'var(--accent-green)' : 'var(--accent-blue)';
                     const sizeStr = (f.file_size / (1024 * 1024)).toFixed(2) + ' MB';
+                    const devTag = f.device_name ? '<span class="device-tag">📱 ' + escapeHtml(f.device_name) + '</span>' : '<span style="color:var(--text-muted); font-size:11px;">Varsayılan</span>';
                     const dlBtn = isInc 
                         ? '<button class="btn btn-secondary" style="font-size:11px; padding:4px 10px;" onclick="openDownloadsFolder()">Klasörde Göster</button>'
                         : '<a href="/file/download/' + f.id + '/' + encodeURIComponent(f.file_name) + '" class="btn btn-secondary" style="font-size:11px; padding:4px 10px; text-decoration:none;">İndir</a>';
                     return '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">' +
                         '<td style="padding:12px 14px; color:' + dirColor + '; font-weight:700;">' + dirIcon + '</td>' +
+                        '<td style="padding:12px 14px;">' + devTag + '</td>' +
                         '<td style="padding:12px 14px; font-weight:600;">' + escapeHtml(f.file_name) + '</td>' +
                         '<td style="padding:12px 14px; color:var(--text-muted);">' + sizeStr + '</td>' +
                         '<td style="padding:12px 14px; color:var(--text-muted);">' + formatTime(f.timestamp) + '</td>' +
@@ -4144,6 +5015,9 @@ const dashboardHTML = `<!DOCTYPE html>
             const barEl = document.getElementById('uploadProgressBar');
             const pctEl = document.getElementById('uploadPercent');
 
+            const fileDevEl = document.getElementById('fileDeviceSelector');
+            const targetDevId = (fileDevEl && fileDevEl.value !== 'all') ? fileDevEl.value : (activeGlobalDeviceId !== 'all' ? activeGlobalDeviceId : '');
+
             if (box) box.style.display = 'block';
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
@@ -4153,6 +5027,10 @@ const dashboardHTML = `<!DOCTYPE html>
 
                 const formData = new FormData();
                 formData.append('file', file);
+                if (targetDevId) {
+                    formData.append('device_id', targetDevId);
+                    formData.append('target_device_id', targetDevId);
+                }
 
                 try {
                     if (barEl) barEl.style.width = '70%';
@@ -4219,9 +5097,12 @@ const dashboardHTML = `<!DOCTYPE html>
         let allContacts = [];
         let sharedTabsHistory = [];
 
-        async function loadContactsList() {
+        async function loadContactsList(devId) {
             try {
-                const res = await fetch('/contacts');
+                devId = devId || document.getElementById('contactsDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/contacts';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const data = await res.json();
                 allContacts = data.contacts || [];
                 renderContacts(allContacts);
@@ -4234,9 +5115,16 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        function onContactsDeviceChange(devId) {
+            loadContactsList(devId);
+        }
+
         async function refreshContacts() {
             try {
-                await fetch('/contacts/refresh', { method: 'POST' });
+                const devId = document.getElementById('contactsDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/contacts/refresh';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                await fetch(url, { method: 'POST' });
                 alert('📱 Telefona rehber senkronizasyon isteği gönderildi. Birkaç saniye içinde güncellenecektir.');
                 setTimeout(loadContactsList, 1500);
             } catch (e) {
@@ -4278,6 +5166,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 var grad = gradients[idx % gradients.length];
                 var safeName = (c.name || 'İsimsiz').replace(/'/g, "\\'");
                 var safeNum = (c.number || '').replace(/'/g, "\\'");
+                var devTag = c.device_name ? '<span class="device-tag" style="font-size:9px; padding:1px 5px;">📱 ' + escapeHtml(c.device_name) + '</span>' : '';
 
                 return '<div style="background: rgba(18, 24, 38, 0.7); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: all 0.2s;">' +
                     '<div style="display: flex; align-items: center; gap: 12px;">' +
@@ -4285,13 +5174,15 @@ const dashboardHTML = `<!DOCTYPE html>
                             initials +
                         '</div>' +
                         '<div style="overflow: hidden; flex: 1;">' +
-                            '<div style="font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(c.name) + '</div>' +
+                            '<div style="font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display:flex; align-items:center; gap:6px;">' + 
+                                escapeHtml(c.name) + devTag +
+                            '</div>' +
                             '<div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">' + escapeHtml(c.number) + '</div>' +
                         '</div>' +
                     '</div>' +
                     '<div style="display: flex; gap: 6px; margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">' +
-                        '<button class="btn btn-success" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="callAction(\'DIAL\', \'' + safeNum + '\')" title="Telefonla Ara">📞 Ara</button>' +
-                        '<button class="btn btn-primary" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="startSmsWith(\'' + safeNum + '\', \'' + safeName + '\')" title="SMS Gönder">💬 SMS</button>' +
+                        '<button class="btn btn-success" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="callAction(\'DIAL\', \'' + safeNum + '\', undefined, \'' + (c.device_id || '') + '\')" title="Telefonla Ara">📞 Ara</button>' +
+                        '<button class="btn btn-primary" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="startSmsWith(\'' + safeNum + '\', \'' + safeName + '\', \'' + (c.device_id || '') + '\')" title="SMS Gönder">💬 SMS</button>' +
                         '<button class="btn btn-secondary" style="padding: 6px 10px; font-size: 11px;" onclick="copyTextToClip(\'' + safeNum + '\')" title="Numarayı Kopyala">📋</button>' +
                     '</div>' +
                 '</div>';
@@ -4312,7 +5203,13 @@ const dashboardHTML = `<!DOCTYPE html>
             });
         }
 
-        function startSmsWith(number, name) {
+        function startSmsWith(number, name, deviceId) {
+            if (deviceId) {
+                const sendDevEl = document.getElementById('smsSendDeviceSelector');
+                if (sendDevEl && Array.from(sendDevEl.options).some(o => o.value === deviceId)) {
+                    sendDevEl.value = deviceId;
+                }
+            }
             switchTab('sms');
             setTimeout(() => {
                 const searchInput = document.querySelector('.chat-search-bar input');
@@ -4333,8 +5230,12 @@ const dashboardHTML = `<!DOCTYPE html>
             if (!url.startsWith('http://') && !url.startsWith('https://')) {
                 url = 'https://' + url;
             }
+            const tabDevEl = document.getElementById('tabDeviceSelector');
+            const targetDevId = (tabDevEl && tabDevEl.value !== 'all') ? tabDevEl.value : (activeGlobalDeviceId !== 'all' ? activeGlobalDeviceId : '');
             try {
-                const res = await fetch('/url/send_to_phone?url=' + encodeURIComponent(url), { method: 'POST' });
+                let reqUrl = '/url/send_to_phone?url=' + encodeURIComponent(url);
+                if (targetDevId) reqUrl += '&device_id=' + encodeURIComponent(targetDevId);
+                const res = await fetch(reqUrl, { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     input.value = '';
@@ -4398,9 +5299,12 @@ const dashboardHTML = `<!DOCTYPE html>
         let currentPhotoFilter = 'all';
         let activeLightboxPhoto = null;
 
-        async function loadPhotosList() {
+        async function loadPhotosList(devId) {
             try {
-                const res = await fetch('/photos');
+                devId = devId || document.getElementById('photosDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/photos';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const data = await res.json();
                 allPhotos = data.photos || [];
                 renderPhotos(getFilteredPhotos());
@@ -4413,9 +5317,16 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
+        function onPhotosDeviceChange(devId) {
+            loadPhotosList(devId);
+        }
+
         async function refreshPhotos() {
             try {
-                await fetch('/photos/refresh', { method: 'POST' });
+                const devId = document.getElementById('photosDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/photos/refresh';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                await fetch(url, { method: 'POST' });
                 alert('📱 Telefona fotoğraf galerisi senkronizasyon isteği gönderildi. Birkaç saniye içinde güncellenecektir.');
                 setTimeout(loadPhotosList, 1500);
             } catch (e) {
@@ -4468,6 +5379,7 @@ const dashboardHTML = `<!DOCTYPE html>
                 var dateStr = p.date ? new Date(p.date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
                 var sizeMB = (p.size / (1024 * 1024)).toFixed(1) + ' MB';
                 var thumbSrc = p.thumbnail ? ('data:image/jpeg;base64,' + p.thumbnail) : '';
+                var devTag = p.device_name ? '<span class="device-tag" style="position:absolute; top:6px; left:6px; z-index:5; font-size:9px; background:rgba(15,23,42,0.85); border:1px solid rgba(56,189,248,0.4);">📱 ' + escapeHtml(p.device_name) + '</span>' : '';
 
                 var imgHtml = thumbSrc ? 
                     '<img src="' + thumbSrc + '" alt="' + safeName + '" style="width: 100%; height: 160px; object-fit: cover; display: block; transition: transform 0.3s;">' :
@@ -4475,6 +5387,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
                 return '<div style="background: rgba(18, 24, 38, 0.7); border: 1px solid var(--border-card); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: all 0.2s;" class="photo-card">' +
                     '<div style="position: relative; overflow: hidden; cursor: pointer;" onclick="openPhotoLightbox(' + p.id + ')">' +
+                        devTag +
                         imgHtml +
                         '<div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.85)); padding: 6px 8px; font-size: 11px; color: white; display: flex; justify-content: space-between;">' +
                             '<span>' + dateStr + '</span>' +
@@ -4485,7 +5398,7 @@ const dashboardHTML = `<!DOCTYPE html>
                         '<div style="font-size: 12px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + safeName + '">' + safeName + '</div>' +
                         '<div style="display: flex; gap: 6px; margin-top: auto;">' +
                             '<button class="btn btn-secondary" style="flex: 1; font-size: 11px; padding: 5px 0;" onclick="openPhotoLightbox(' + p.id + ')">🔍 Önizle</button>' +
-                            '<button class="btn btn-primary" style="flex: 1; font-size: 11px; padding: 5px 0;" onclick="downloadPhotoToPc(' + p.id + ')">⬇️ İndir</button>' +
+                            '<button class="btn btn-primary" style="flex: 1; font-size: 11px; padding: 5px 0;" onclick="downloadPhotoToPc(' + p.id + ', \'' + (p.device_id || '') + '\')">⬇️ İndir</button>' +
                         '</div>' +
                     '</div>' +
                 '</div>';
@@ -4507,7 +5420,7 @@ const dashboardHTML = `<!DOCTYPE html>
             const dateStr = photo.date ? new Date(photo.date).toLocaleString() : '';
             const sizeMB = (photo.size / (1024 * 1024)).toFixed(2) + ' MB';
             sub.textContent = dateStr + ' • ' + sizeMB + (photo.width ? ' • ' + photo.width + 'x' + photo.height : '');
-            info.textContent = photo.mime_type || 'image/jpeg';
+            info.textContent = (photo.mime_type || 'image/jpeg') + (photo.device_name ? ' • ' + photo.device_name : '');
 
             if (photo.thumbnail) {
                 img.src = 'data:image/jpeg;base64,' + photo.thumbnail;
@@ -4524,9 +5437,12 @@ const dashboardHTML = `<!DOCTYPE html>
             activeLightboxPhoto = null;
         }
 
-        async function downloadPhotoToPc(photoId) {
+        async function downloadPhotoToPc(photoId, devId) {
             try {
-                const res = await fetch('/photos/download?id=' + photoId, { method: 'POST' });
+                devId = devId || document.getElementById('photosDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/photos/download?id=' + photoId;
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url, { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     alert('📥 Fotoğraf telefondan talep edildi! İndirildiğinde Downloads klasörünüze kaydedilecektir.');
@@ -4539,7 +5455,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
         function downloadLightboxPhoto() {
             if (activeLightboxPhoto) {
-                downloadPhotoToPc(activeLightboxPhoto.id);
+                downloadPhotoToPc(activeLightboxPhoto.id, activeLightboxPhoto.device_id);
             }
         }
 
@@ -4549,7 +5465,7 @@ const dashboardHTML = `<!DOCTYPE html>
         }
 
         function escapeHtml(str) {
-            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         function formatTime(ts) {
@@ -4563,10 +5479,20 @@ const dashboardHTML = `<!DOCTYPE html>
         let mirrorQuality = 75;
         let mirrorPollInterval = null;
 
-        function toggleScreenMirror(start) {
+        function onScreenDeviceChange(devId) {
+            if (isScreenMirroring) {
+                toggleScreenMirror(false);
+                setTimeout(() => toggleScreenMirror(true), 300);
+            }
+        }
+
+        function toggleScreenMirror(start, devId) {
             isScreenMirroring = start;
-            const action = start ? 'START' : 'STOP';
-            fetch('/screen/mirror?action=' + action + '&quality=' + mirrorQuality);
+            devId = devId || document.getElementById('screenDeviceSelector')?.value || (activeGlobalDeviceId !== 'all' ? activeGlobalDeviceId : '');
+
+            let url = '/screen/mirror?action=' + (start ? 'START' : 'STOP') + '&quality=' + mirrorQuality;
+            if (devId) url += '&device_id=' + encodeURIComponent(devId);
+            fetch(url);
 
             const btnStart = document.getElementById('btnMirrorStart');
             const btnStop = document.getElementById('btnMirrorStop');
@@ -4601,7 +5527,10 @@ const dashboardHTML = `<!DOCTYPE html>
                 if (b) b.className = (val === q ? 'btn btn-primary' : 'btn btn-secondary');
             });
             if (isScreenMirroring) {
-                fetch('/screen/mirror?action=START&quality=' + mirrorQuality);
+                const devId = document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/screen/mirror?action=START&quality=' + mirrorQuality;
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                fetch(url);
             }
         }
 
@@ -4611,8 +5540,11 @@ const dashboardHTML = `<!DOCTYPE html>
                 if (!isScreenMirroring) return;
                 try {
                     const img = document.getElementById('screenMirrorImg');
+                    const devId = document.getElementById('screenDeviceSelector')?.value || (activeGlobalDeviceId !== 'all' ? activeGlobalDeviceId : '');
                     if (img) {
-                        img.src = '/screen/frame?format=jpeg&_t=' + Date.now();
+                        let frameUrl = '/screen/frame?format=jpeg&_t=' + Date.now();
+                        if (devId) frameUrl += '&device_id=' + encodeURIComponent(devId);
+                        img.src = frameUrl;
                     }
                 } catch (e) {}
             }, 120);
@@ -4625,8 +5557,11 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        function sendScreenTouchAction(act) {
-            fetch('/screen/touch?action=' + encodeURIComponent(act));
+        function sendScreenTouchAction(act, devId) {
+            devId = devId || document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+            let url = '/screen/touch?action=' + encodeURIComponent(act);
+            if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+            fetch(url);
         }
 
         function setupScreenTouch() {
@@ -4640,7 +5575,10 @@ const dashboardHTML = `<!DOCTYPE html>
                 const rect = wrapper.getBoundingClientRect();
                 const x = Math.min(1.0, Math.max(0.0, (e.clientX - rect.left) / rect.width));
                 const y = Math.min(1.0, Math.max(0.0, (e.clientY - rect.top) / rect.height));
-                fetch('/screen/touch?action=' + act + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3));
+                const devId = document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/screen/touch?action=' + act + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                fetch(url);
             }
 
             wrapper.addEventListener('mousedown', function(e) {
@@ -4677,44 +5615,50 @@ const dashboardHTML = `<!DOCTYPE html>
 
             container.addEventListener('keydown', function(e) {
                 if (!isScreenMirroring) return;
+                const devId = document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                const devParam = (devId && devId !== 'all') ? '&device_id=' + encodeURIComponent(devId) : '';
+
                 if (e.key === 'Backspace') {
                     e.preventDefault();
-                    fetch('/screen/key?code=67');
+                    fetch('/screen/key?code=67' + devParam);
                 } else if (e.key === 'Enter') {
                     e.preventDefault();
-                    fetch('/screen/key?code=66');
+                    fetch('/screen/key?code=66' + devParam);
                 } else if (e.key === 'Tab') {
                     e.preventDefault();
-                    fetch('/screen/key?code=61');
+                    fetch('/screen/key?code=61' + devParam);
                 } else if (e.key === 'Escape') {
                     e.preventDefault();
-                    fetch('/screen/key?code=111');
+                    fetch('/screen/key?code=111' + devParam);
                 } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
-                    fetch('/screen/key?code=19');
+                    fetch('/screen/key?code=19' + devParam);
                 } else if (e.key === 'ArrowDown') {
                     e.preventDefault();
-                    fetch('/screen/key?code=20');
+                    fetch('/screen/key?code=20' + devParam);
                 } else if (e.key === 'ArrowLeft') {
                     e.preventDefault();
-                    fetch('/screen/key?code=21');
+                    fetch('/screen/key?code=21' + devParam);
                 } else if (e.key === 'ArrowRight') {
                     e.preventDefault();
-                    fetch('/screen/key?code=22');
+                    fetch('/screen/key?code=22' + devParam);
                 } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
                     e.preventDefault();
-                    fetch('/screen/text?text=' + encodeURIComponent(e.key));
+                    fetch('/screen/text?text=' + encodeURIComponent(e.key) + devParam);
                 }
             });
 
             container.addEventListener('paste', function(e) {
                 e.preventDefault();
                 const text = (e.clipboardData || window.clipboardData).getData('text');
+                const devId = document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
                 if (text) {
+                    let postBody = 'text=' + encodeURIComponent(text);
+                    if (devId && devId !== 'all') postBody += '&device_id=' + encodeURIComponent(devId);
                     fetch('/screen/text', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                        body: 'text=' + encodeURIComponent(text)
+                        body: postBody
                     });
                 }
             });
@@ -4746,10 +5690,16 @@ const dashboardHTML = `<!DOCTYPE html>
                 const files = e.dataTransfer.files;
                 if (!files || files.length === 0) return;
 
+                const devId = document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+
                 for (let i = 0; i < files.length; i++) {
                     const file = files[i];
                     const formData = new FormData();
                     formData.append('file', file);
+                    if (devId && devId !== 'all') {
+                        formData.append('device_id', devId);
+                        formData.append('target_device_id', devId);
+                    }
                     try {
                         const notif = document.createElement('div');
                         notif.style = 'position:fixed; bottom:20px; right:20px; background:#0284c7; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
@@ -4775,11 +5725,14 @@ const dashboardHTML = `<!DOCTYPE html>
 
         // AMOLED Screen Dimming (Screen-Off Power Saving)
         let isScreenDimmed = false;
-        async function toggleScreenDim() {
+        async function toggleScreenDim(devId) {
             isScreenDimmed = !isScreenDimmed;
             const btn = document.getElementById('btnDimScreen');
+            devId = devId || document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
             try {
-                await fetch('/screen/dim?enabled=' + isScreenDimmed);
+                let url = '/screen/dim?enabled=' + isScreenDimmed;
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
                 if (btn) {
                     if (isScreenDimmed) {
                         btn.innerHTML = '☀️ Ekranı Aç';
@@ -4799,9 +5752,12 @@ const dashboardHTML = `<!DOCTYPE html>
         }
 
         // Phone Ringer Mode Control
-        async function setPhoneRinger(mode) {
+        async function setPhoneRinger(mode, devId) {
             try {
-                await fetch('/ringer/set?mode=' + encodeURIComponent(mode));
+                devId = devId || document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/ringer/set?mode=' + encodeURIComponent(mode);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
                 const notif = document.createElement('div');
                 notif.style = 'position:fixed; bottom:20px; right:20px; background:#38bdf8; color:#0f172a; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
                 notif.innerText = '🔔 Telefon Ses Modu: ' + mode;
@@ -4814,18 +5770,21 @@ const dashboardHTML = `<!DOCTYPE html>
 
         // App Streaming (Uygulama Listesi ve Başlatma)
         let phoneInstalledApps = [];
-        async function loadPhoneApps() {
+        async function loadPhoneApps(devId) {
             const listEl = document.getElementById('phoneAppsList');
             if (listEl) listEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">Uygulamalar telefondan yükleniyor...</div>';
             try {
-                const res = await fetch('/apps/list');
+                devId = devId || document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/apps/list';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const data = await res.json();
                 if (data.apps && data.apps.length > 0) {
                     phoneInstalledApps = data.apps;
                     renderApps(phoneInstalledApps);
                 } else {
                     setTimeout(async () => {
-                        const r2 = await fetch('/apps/list');
+                        const r2 = await fetch(url);
                         const d2 = await r2.json();
                         phoneInstalledApps = d2.apps || [];
                         renderApps(phoneInstalledApps);
@@ -4859,11 +5818,14 @@ const dashboardHTML = `<!DOCTYPE html>
             renderApps(filtered);
         }
 
-        async function launchPhoneApp(pkg) {
+        async function launchPhoneApp(pkg, devId) {
             try {
-                await fetch('/apps/launch?pkg=' + encodeURIComponent(pkg));
+                devId = devId || document.getElementById('screenDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/apps/launch?pkg=' + encodeURIComponent(pkg);
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                await fetch(url);
                 if (!isScreenMirroring) {
-                    toggleScreenMirror(true);
+                    toggleScreenMirror(true, devId);
                 }
                 const notif = document.createElement('div');
                 notif.style = 'position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
@@ -4876,9 +5838,16 @@ const dashboardHTML = `<!DOCTYPE html>
         }
 
         // WebDAV Storage Mount (Z:\)
-        async function mountStorageDrive(drive) {
+        function onNetworkDeviceChange(devId) {
+            // Update network targets if needed
+        }
+
+        async function mountStorageDrive(drive, devId) {
             try {
-                const res = await fetch('/storage/mount?drive=' + (drive || 'Z:'));
+                devId = devId || document.getElementById('networkDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/storage/mount?drive=' + (drive || 'Z:');
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const json = await res.json();
                 if (json.success) {
                     alert('✅ ' + json.drive + ' Sürücüsü Windows Gezgini\'ne başarıyla bağlandı ve açıldı!');
@@ -4890,9 +5859,12 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function unmountStorageDrive(drive) {
+        async function unmountStorageDrive(drive, devId) {
             try {
-                const res = await fetch('/storage/unmount?drive=' + (drive || 'Z:'));
+                devId = devId || document.getElementById('networkDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/storage/unmount?drive=' + (drive || 'Z:');
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const json = await res.json();
                 alert('🔌 ' + (drive || 'Z:') + ' sürücüsü bağlantısı kesildi.');
             } catch (e) {
@@ -4905,9 +5877,12 @@ const dashboardHTML = `<!DOCTYPE html>
         }
 
         // Instant Hotspot
-        async function toggleHotspot(action) {
+        async function toggleHotspot(action, devId) {
             try {
-                const res = await fetch('/hotspot/toggle?action=' + (action || ''));
+                devId = devId || document.getElementById('networkDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/hotspot/toggle?action=' + (action || '');
+                if (devId && devId !== 'all') url += '&device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const json = await res.json();
                 alert('📡 Hotspot komutu iletildi: ' + json.action);
             } catch (e) {
@@ -4915,9 +5890,12 @@ const dashboardHTML = `<!DOCTYPE html>
             }
         }
 
-        async function connectInstantHotspot() {
+        async function connectInstantHotspot(devId) {
             try {
-                const res = await fetch('/hotspot/connect');
+                devId = devId || document.getElementById('networkDeviceSelector')?.value || activeGlobalDeviceId;
+                let url = '/hotspot/connect';
+                if (devId && devId !== 'all') url += '?device_id=' + encodeURIComponent(devId);
+                const res = await fetch(url);
                 const json = await res.json();
                 if (json.success) {
                     alert('🚀 Hotspot başlatıldı! PC Wi-Fi ' + json.ssid + ' ağına otomatik bağlanıyor...');

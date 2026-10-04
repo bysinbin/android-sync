@@ -111,6 +111,8 @@ type NotificationPayload struct {
 	Key         string                   `json:"key,omitempty"`
 	CanReply    bool                     `json:"can_reply,omitempty"`
 	Actions     []NotificationActionItem `json:"actions,omitempty"`
+	DeviceID    string                   `json:"device_id,omitempty"`
+	DeviceName  string                   `json:"device_name,omitempty"`
 }
 
 // CallStatePayload represents the state of phone calls.
@@ -118,13 +120,16 @@ type CallStatePayload struct {
 	State       string `json:"state"` // RINGING, OFFHOOK, IDLE
 	PhoneNumber string `json:"phone_number"`
 	CallerName  string `json:"caller_name"`
+	DeviceID    string `json:"device_id,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"`
 }
 
 // CallActionPayload represents an answer/reject/dial action from PC to phone.
 type CallActionPayload struct {
-	Action string  `json:"action"` // ANSWER, REJECT, HANGUP, DIAL, SET_SPEAKER, SET_MUTE
-	Number *string `json:"number,omitempty"`
-	Value  *bool   `json:"value,omitempty"`
+	Action         string  `json:"action"` // ANSWER, REJECT, HANGUP, DIAL, SET_SPEAKER, SET_MUTE
+	Number         *string `json:"number,omitempty"`
+	Value          *bool   `json:"value,omitempty"`
+	TargetDeviceID string  `json:"target_device_id,omitempty"`
 }
 
 // MediaInfoPayload describes what music/media is currently playing.
@@ -137,6 +142,8 @@ type MediaInfoPayload struct {
 	PositionMs int64   `json:"position_ms,omitempty"`
 	DurationMs int64   `json:"duration_ms,omitempty"`
 	Percent    float64 `json:"percent,omitempty"`
+	DeviceID   string  `json:"device_id,omitempty"`
+	DeviceName string  `json:"device_name,omitempty"`
 }
 
 // MediaCommandPayload represents a playback control command sent from phone to PC.
@@ -148,9 +155,10 @@ type MediaCommandPayload struct {
 
 // PhoneCommandPayload represents a command sent from PC to control the phone.
 type PhoneCommandPayload struct {
-	Action     string  `json:"action"` // PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, VOLUME_UP, VOLUME_DOWN, MUTE, RING, STOP_RING, SEEK_PERCENT
-	PositionMs int64   `json:"position_ms,omitempty"`
-	Percent    float64 `json:"percent,omitempty"`
+	Action         string  `json:"action"` // PLAY_PAUSE, PLAY, PAUSE, NEXT, PREVIOUS, VOLUME_UP, VOLUME_DOWN, MUTE, RING, STOP_RING, SEEK_PERCENT
+	PositionMs     int64   `json:"position_ms,omitempty"`
+	Percent        float64 `json:"percent,omitempty"`
+	TargetDeviceID string  `json:"target_device_id,omitempty"`
 }
 
 // ClipboardPayload represents synced clipboard text or image.
@@ -160,6 +168,8 @@ type ClipboardPayload struct {
 	Type        string `json:"type,omitempty"`         // "text" or "image"
 	ImageBase64 string `json:"image_base64,omitempty"` // Base64 encoded PNG
 	MimeType    string `json:"mime_type,omitempty"`    // "image/png"
+	DeviceID    string `json:"device_id,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"`
 }
 
 // SmsMessage represents an SMS message from/to phone.
@@ -172,6 +182,8 @@ type SmsMessage struct {
 	Timestamp   int64  `json:"timestamp"`
 	IsIncoming  bool   `json:"is_incoming"`
 	Read        bool   `json:"read"`
+	DeviceID    string `json:"device_id,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"`
 }
 
 // SmsSyncPayload represents the list of SMS messages.
@@ -181,8 +193,9 @@ type SmsSyncPayload struct {
 
 // SmsSendPayload represents a request to send an SMS from PC.
 type SmsSendPayload struct {
-	Recipient string `json:"recipient"`
-	Body      string `json:"body"`
+	Recipient      string `json:"recipient"`
+	Body           string `json:"body"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // SmsSentStatusPayload represents the delivery/sent status of an SMS.
@@ -196,13 +209,16 @@ type SmsSentStatusPayload struct {
 
 // FileAvailablePayload is sent to the phone when a file is ready to be downloaded from PC.
 type FileAvailablePayload struct {
-	ID          string `json:"id"`
-	FileName    string `json:"file_name"`
-	FileSize    int64  `json:"file_size"`
-	DownloadURL string `json:"download_url"`
-	MimeType    string `json:"mime_type,omitempty"`
-	Sender      string `json:"sender"`
-	Timestamp   int64  `json:"timestamp"`
+	ID             string `json:"id"`
+	FileName       string `json:"file_name"`
+	FileSize       int64  `json:"file_size"`
+	DownloadURL    string `json:"download_url"`
+	MimeType       string `json:"mime_type,omitempty"`
+	Sender         string `json:"sender"`
+	Timestamp      int64  `json:"timestamp"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
+	DeviceID       string `json:"device_id,omitempty"`
+	DeviceName     string `json:"device_name,omitempty"`
 }
 
 // FileUploadNotifyPayload is sent when a file is uploaded to PC.
@@ -220,18 +236,21 @@ type NotificationReplyPayload struct {
 	NotificationKey string `json:"notification_key"`
 	ActionIndex     int    `json:"action_index"`
 	ReplyText       string `json:"reply_text"`
+	TargetDeviceID  string `json:"target_device_id,omitempty"`
 }
 
 // NotificationActionPayload is sent when a user clicks an action button on a notification from PC.
 type NotificationActionPayload struct {
 	NotificationKey string `json:"notification_key"`
 	ActionIndex     int    `json:"action_index"`
+	TargetDeviceID  string `json:"target_device_id,omitempty"`
 }
 
 // NotificationDismissPayload is sent to dismiss/cancel a notification on phone or remove it on PC.
 type NotificationDismissPayload struct {
 	NotificationKey string `json:"notification_key"`
 	NotificationID  string `json:"notification_id,omitempty"`
+	TargetDeviceID  string `json:"target_device_id,omitempty"`
 }
 
 // TouchpadEventPayload is sent when the user uses the phone screen as a trackpad / remote.
@@ -259,15 +278,18 @@ type RemoteActionPayload struct {
 
 // OpenUrlPayload carries a URL to be opened in default browser.
 type OpenUrlPayload struct {
-	URL    string `json:"url"`
-	Sender string `json:"sender,omitempty"`
+	URL            string `json:"url"`
+	Sender         string `json:"sender,omitempty"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ContactItem represents a contact entry from the phone.
 type ContactItem struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Number string `json:"number"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Number     string `json:"number"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // ContactsResponsePayload contains the phone's contact list.
@@ -277,14 +299,16 @@ type ContactsResponsePayload struct {
 
 // PhotoItem represents a photo entry from the phone gallery.
 type PhotoItem struct {
-	ID        int64  `json:"id"`
-	Name      string `json:"name"`
-	Date      int64  `json:"date"`
-	Size      int64  `json:"size"`
-	MimeType  string `json:"mime_type"`
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-	Thumbnail string `json:"thumbnail,omitempty"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Date       int64  `json:"date"`
+	Size       int64  `json:"size"`
+	MimeType   string `json:"mime_type"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	Thumbnail  string `json:"thumbnail,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // PhotosResponsePayload contains the recent photos list from phone.
@@ -295,69 +319,83 @@ type PhotosResponsePayload struct {
 
 // PhotoDownloadRequestPayload requests downloading full-res photo from phone.
 type PhotoDownloadRequestPayload struct {
-	ID        int64  `json:"id"`
-	UploadURL string `json:"upload_url,omitempty"`
+	ID             int64  `json:"id"`
+	UploadURL      string `json:"upload_url,omitempty"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ScreenMirrorRequestPayload requests starting or stopping screen mirroring.
 type ScreenMirrorRequestPayload struct {
-	Action  string `json:"action"` // "START", "STOP"
-	Quality int    `json:"quality"`
+	Action         string `json:"action"` // "START", "STOP"
+	Quality        int    `json:"quality"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ScreenMirrorFramePayload carries a frame of the phone screen in base64 JPEG.
 type ScreenMirrorFramePayload struct {
-	Width     int    `json:"width"`
-	Height    int    `json:"height"`
-	Data      string `json:"data"` // base64 JPEG
-	Timestamp int64  `json:"timestamp"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
+	Data       string `json:"data"` // base64 JPEG
+	Timestamp  int64  `json:"timestamp"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // ScreenTouchPayload carries touch gestures to be injected into the phone screen.
 type ScreenTouchPayload struct {
-	Action string  `json:"action"` // "down", "move", "up"
-	X      float32 `json:"x"`      // 0.0 to 1.0
-	Y      float32 `json:"y"`      // 0.0 to 1.0
+	Action         string  `json:"action"` // "down", "move", "up"
+	X              float32 `json:"x"`      // 0.0 to 1.0
+	Y              float32 `json:"y"`      // 0.0 to 1.0
+	TargetDeviceID string  `json:"target_device_id,omitempty"`
 }
 
 // StorageMountRequestPayload requests mounting or unmounting phone storage.
 type StorageMountRequestPayload struct {
-	Action string `json:"action"` // "START", "STOP", "STATUS"
+	Action         string `json:"action"` // "START", "STOP", "STATUS"
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // StorageMountStatusPayload carries WebDAV server details on the phone.
 type StorageMountStatusPayload struct {
-	Enabled bool   `json:"enabled"`
-	Port    int    `json:"port"`
-	URL     string `json:"url"`
-	Path    string `json:"path"`
+	Enabled    bool   `json:"enabled"`
+	Port       int    `json:"port"`
+	URL        string `json:"url"`
+	Path       string `json:"path"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // HotspotCommandPayload carries commands to control phone mobile hotspot.
 type HotspotCommandPayload struct {
-	Action string `json:"action"` // "START", "STOP", "STATUS"
+	Action         string `json:"action"` // "START", "STOP", "STATUS"
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // HotspotStatusPayload carries the Wi-Fi credentials for instant connection.
 type HotspotStatusPayload struct {
-	Enabled  bool   `json:"enabled"`
-	SSID     string `json:"ssid"`
-	Password string `json:"password"`
-	IP       string `json:"ip,omitempty"`
+	Enabled    bool   `json:"enabled"`
+	SSID       string `json:"ssid"`
+	Password   string `json:"password"`
+	IP         string `json:"ip,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
 }
 
 // CallAudioBridgePayload carries real-time PCM audio for hands-free calls.
 type CallAudioBridgePayload struct {
-	Action     string `json:"action"`              // "START", "STOP", "DATA"
-	Direction  string `json:"direction,omitempty"` // "PHONE_TO_PC", "PC_TO_PHONE"
-	Data       string `json:"data,omitempty"`      // base64 PCM 16kHz
-	SampleRate int    `json:"sample_rate,omitempty"`
+	Action         string `json:"action"`              // "START", "STOP", "DATA"
+	Direction      string `json:"direction,omitempty"` // "PHONE_TO_PC", "PC_TO_PHONE"
+	Data           string `json:"data,omitempty"`      // base64 PCM 16kHz
+	SampleRate     int    `json:"sample_rate,omitempty"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // InstalledAppInfo holds information about a launchable app on the phone.
 type InstalledAppInfo struct {
 	Name        string `json:"name"`
 	PackageName string `json:"package_name"`
+	DeviceID    string `json:"device_id,omitempty"`
+	DeviceName  string `json:"device_name,omitempty"`
 }
 
 // AppListResponsePayload contains the list of installed applications.
@@ -367,27 +405,32 @@ type AppListResponsePayload struct {
 
 // AppLaunchRequestPayload requests launching a specific app on the phone.
 type AppLaunchRequestPayload struct {
-	PackageName string `json:"package_name"`
+	PackageName    string `json:"package_name"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ScreenKeyPayload injects an Android keycode (Enter, Backspace, etc.).
 type ScreenKeyPayload struct {
-	KeyCode int `json:"key_code"`
+	KeyCode        int    `json:"key_code"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ScreenTextPayload injects typed text into the active Android input field.
 type ScreenTextPayload struct {
-	Text string `json:"text"`
+	Text           string `json:"text"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // ScreenDimPayload controls pitch-black screen power saving during mirroring.
 type ScreenDimPayload struct {
-	Enabled bool `json:"enabled"`
+	Enabled        bool   `json:"enabled"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // RingerCommandPayload sets the phone ringer mode ("NORMAL", "VIBRATE", "SILENT").
 type RingerCommandPayload struct {
-	Mode string `json:"mode"`
+	Mode           string `json:"mode"`
+	TargetDeviceID string `json:"target_device_id,omitempty"`
 }
 
 // Helper to construct a Message with serialized payload.
