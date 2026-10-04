@@ -36,9 +36,18 @@ object ProtocolEvents {
     const val PHOTOS_REQUEST = "photos_request"
     const val PHOTOS_RESPONSE = "photos_response"
     const val PHOTO_DOWNLOAD_REQUEST = "photo_download_request"
+    const val SCREEN_MIRROR_REQUEST = "screen_mirror_request"
+    const val SCREEN_MIRROR_FRAME = "screen_mirror_frame"
+    const val SCREEN_TOUCH = "screen_touch"
+    const val STORAGE_MOUNT_REQUEST = "storage_mount_request"
+    const val STORAGE_MOUNT_STATUS = "storage_mount_status"
+    const val HOTSPOT_COMMAND = "hotspot_command"
+    const val HOTSPOT_STATUS = "hotspot_status"
+    const val CALL_AUDIO_BRIDGE = "call_audio_bridge"
     const val PING = "ping"
     const val PONG = "pong"
 }
+
 
 data class AuthRequestPayload(
     val client_id: String,
@@ -257,7 +266,55 @@ data class DiscoveryPacket(
     val ws_port: Int
 )
 
+data class ScreenMirrorRequestPayload(
+    val action: String, // START, STOP
+    val quality: Int = 70
+)
+
+data class ScreenMirrorFramePayload(
+    val width: Int,
+    val height: Int,
+    val data: String, // base64 JPEG
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+data class ScreenTouchPayload(
+    val action: String, // down, move, up
+    val x: Float, // 0.0 to 1.0
+    val y: Float // 0.0 to 1.0
+)
+
+data class StorageMountRequestPayload(
+    val action: String // START, STOP, STATUS
+)
+
+data class StorageMountStatusPayload(
+    val enabled: Boolean,
+    val port: Int,
+    val url: String,
+    val path: String
+)
+
+data class HotspotCommandPayload(
+    val action: String // START, STOP, STATUS
+)
+
+data class HotspotStatusPayload(
+    val enabled: Boolean,
+    val ssid: String,
+    val password: String,
+    val ip: String? = null
+)
+
+data class CallAudioBridgePayload(
+    val action: String, // START, STOP, DATA
+    val direction: String? = null, // PHONE_TO_PC, PC_TO_PHONE
+    val data: String? = null,
+    val sample_rate: Int = 16000
+)
+
 fun Any.toSyncMessage(event: String): String {
+
     val gson = Gson()
     val jsonTree = gson.toJsonTree(this)
     val msg = SyncMessage(event, jsonTree)
