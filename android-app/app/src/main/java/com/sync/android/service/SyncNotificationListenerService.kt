@@ -63,6 +63,25 @@ class SyncNotificationListenerService : NotificationListenerService() {
                 return false
             }
         }
+
+        fun executeNotificationAction(key: String, actionIndex: Int): Boolean {
+            val service = instance ?: return false
+            val sbn = cachedNotifications[key] ?: return false
+            val actions = sbn.notification?.actions ?: return false
+            if (actionIndex in actions.indices) {
+                val a = actions[actionIndex]
+                try {
+                    a.actionIntent.send()
+                    Log.d(TAG, "Bildirim eylemi tetiklendi ($key): #${actionIndex} ${a.title}")
+                    return true
+                } catch (e: Exception) {
+                    Log.e(TAG, "Bildirim eylemi tetikleme hatası ($key): ${e.message}", e)
+                    return false
+                }
+            }
+            Log.w(TAG, "Aksiyon indeksi bulunamadı ($key, idx: $actionIndex)")
+            return false
+        }
     }
 
     override fun onCreate() {
@@ -126,12 +145,24 @@ class SyncNotificationListenerService : NotificationListenerService() {
             pkgName
         }
 
-        // Check if notification can be replied inline
-        val canReply = notification.actions?.any { action ->
-            action.remoteInputs != null && action.remoteInputs.isNotEmpty()
-        } == true
+        // Check if notification can be replied inline and extract all action buttons
+        val actionList = mutableListOf<com.sync.android.model.NotificationActionItem>()
+        notification.actions?.forEachIndexed { idx, act ->
+            val aTitle = act.title?.toString()?.trim() ?: ""
+            if (aTitle.isNotEmpty()) {
+                val isReply = act.remoteInputs != null && act.remoteInputs.isNotEmpty()
+                actionList.add(
+                    com.sync.android.model.NotificationActionItem(
+                        index = idx,
+                        title = aTitle,
+                        is_reply = isReply
+                    )
+                )
+            }
+        }
+        val canReply = actionList.any { it.is_reply }
 
-        Log.d(TAG, "Yeni Bildirim (Arama: $isCall, Yanıtlanabilir: $canReply): [$appName] $title -> $text")
+        Log.d(TAG, "Yeni Bildirim (Arama: $isCall, Yanıtlanabilir: $canReply, Aksiyonlar: ${actionList.size}): [$appName] $title -> $text")
 
         val ws = SyncForegroundService.instance?.webSocketClient
         if (ws?.isConnected == true) {
@@ -148,7 +179,8 @@ class SyncNotificationListenerService : NotificationListenerService() {
                 title = title,
                 text = text,
                 key = sbn.key,
-                canReply = canReply
+                canReply = canReply,
+                actions = if (actionList.isNotEmpty()) actionList else null
             )
         }
     }

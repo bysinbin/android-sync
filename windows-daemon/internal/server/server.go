@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -726,6 +727,31 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key})
 	})
 
+	// Notification Action Trigger API
+	mux.HandleFunc("/notification/action", func(w http.ResponseWriter, r *http.Request) {
+		key := r.URL.Query().Get("key")
+		idxStr := r.URL.Query().Get("index")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if k := r.FormValue("key"); k != "" {
+				key = k
+			}
+			if idx := r.FormValue("index"); idx != "" {
+				idxStr = idx
+			}
+		}
+
+		if key == "" || idxStr == "" {
+			http.Error(w, "key and index required", http.StatusBadRequest)
+			return
+		}
+
+		actionIndex, _ := strconv.Atoi(idxStr)
+		s.SendNotificationAction(key, actionIndex)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "key": key, "index": actionIndex})
+	})
+
 	// Remote Action API (Lock, Sleep, Shutdown, Restart)
 	mux.HandleFunc("/remote/action", func(w http.ResponseWriter, r *http.Request) {
 		action := r.URL.Query().Get("action")
@@ -1256,6 +1282,19 @@ func (s *SyncServer) SendNotificationReply(key string, actionIndex int, text str
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Bildirim Yanıtı] Yanıt iletildi (%s): %s", key, text)
+	}
+}
+
+// SendNotificationAction triggers an action button on an Android notification.
+func (s *SyncServer) SendNotificationAction(key string, actionIndex int) {
+	payload := protocol.NotificationActionPayload{
+		NotificationKey: key,
+		ActionIndex:     actionIndex,
+	}
+	msg, err := protocol.NewMessage(protocol.EventNotificationAction, payload)
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Bildirim Eylemi] Eylem isteği gönderildi (%s, index: %d)", key, actionIndex)
 	}
 }
 
@@ -2833,6 +2872,16 @@ const dashboardHTML = `<!DOCTYPE html>
                                     '<button class="btn btn-primary" style="font-size:12px; padding:6px 14px;" onclick="sendNotificationReply(\'' + escapeHtml(n.key) + '\', \'' + escapeHtml(n.id) + '\')">Yanıtla</button>' +
                                 '</div>';
                             }
+                            var actionsBox = '';
+                            if (n.actions && n.actions.length > 0 && n.key) {
+                                actionsBox = '<div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">' +
+                                    n.actions.filter(function(a) { return !a.is_reply; }).map(function(a) {
+                                        return '<button class="btn btn-secondary" style="font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;" onclick="triggerNotificationAction(\'' + escapeHtml(n.key) + '\', ' + a.index + ', this)">⚡ ' +
+                                            escapeHtml(a.title) +
+                                        '</button>';
+                                    }).join('') +
+                                '</div>';
+                            }
                             return '<div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:10px; padding:14px;">' +
                                 '<div style="display:flex; justify-content:space-between; margin-bottom:4px;">' +
                                     '<strong style="color:var(--accent-blue); font-size:13px;">' + escapeHtml(n.app_name || 'Uygulama') + '</strong>' +
@@ -2840,6 +2889,7 @@ const dashboardHTML = `<!DOCTYPE html>
                                 '</div>' +
                                 '<div style="font-weight:700; font-size:14px;">' + escapeHtml(n.title || '') + '</div>' +
                                 '<div style="font-size:13px; color:var(--text-secondary); margin-top:2px;">' + escapeHtml(n.text || '') + '</div>' +
+                                actionsBox +
                                 replyBox +
                             '</div>';
                         }).join('');
@@ -3194,6 +3244,26 @@ const dashboardHTML = `<!DOCTYPE html>
             } catch (e) {
                 console.error(e);
                 alert('Hata: ' + e.message);
+            }
+        }
+
+        async function triggerNotificationAction(key, index, btn) {
+            try {
+                if (btn) {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.6';
+                }
+                const res = await fetch('/notification/action?key=' + encodeURIComponent(key) + '&index=' + index, { method: 'POST' });
+                if (res.ok) {
+                    if (btn) {
+                        btn.style.background = 'rgba(16, 185, 129, 0.2)';
+                        btn.style.color = '#10B981';
+                        btn.style.borderColor = '#10B981';
+                        btn.innerText = '✓ ' + btn.innerText.replace('⚡ ', '');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
             }
         }
 

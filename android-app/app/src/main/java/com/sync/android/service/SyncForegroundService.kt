@@ -284,6 +284,13 @@ class SyncForegroundService : Service() {
                 )
                 Log.d(TAG, "Bildirime yanıt verildi: $ok (key=${payload.notification_key})")
             }
+            onNotificationActionReceived = { payload, _ ->
+                val ok = SyncNotificationListenerService.executeNotificationAction(
+                    key = payload.notification_key,
+                    actionIndex = payload.action_index
+                )
+                Log.d(TAG, "Bildirim aksiyonu uygulandı: $ok (key=${payload.notification_key}, index=${payload.action_index})")
+            }
             onOpenUrlReceived = { url, _ ->
                 openUrlInBrowser(url)
             }

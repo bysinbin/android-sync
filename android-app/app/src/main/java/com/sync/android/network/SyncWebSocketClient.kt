@@ -56,6 +56,7 @@ class SyncWebSocketClient(
     var onPCNotificationReceived: ((notif: NotificationPayload, hostKey: String, hostName: String) -> Unit)? = null
     var onFileAvailableReceived: ((payload: FileAvailablePayload, hostKey: String) -> Unit)? = null
     var onNotificationReplyReceived: ((payload: NotificationReplyPayload, hostKey: String) -> Unit)? = null
+    var onNotificationActionReceived: ((payload: NotificationActionPayload, hostKey: String) -> Unit)? = null
     var onOpenUrlReceived: ((url: String, hostKey: String) -> Unit)? = null
     var onContactsRequestReceived: ((hostKey: String) -> Unit)? = null
     var onPhotosRequestReceived: ((hostKey: String) -> Unit)? = null
@@ -321,6 +322,18 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.NOTIFICATION_ACTION -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val actionPayload = Gson().fromJson(msg.payload, NotificationActionPayload::class.java)
+                            Log.d(TAG, "[$hostName] Bildirim aksiyon isteği alındı: key=${actionPayload.notification_key}, index=${actionPayload.action_index}")
+                            onNotificationActionReceived?.invoke(actionPayload, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "NOTIFICATION_ACTION parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
                 ProtocolEvents.OPEN_URL -> {
                     if (host?.isAuthorized == true) {
                         try {
@@ -459,7 +472,16 @@ class SyncWebSocketClient(
         broadcastMessage(payload.toSyncMessage(ProtocolEvents.DEVICE_INFO))
     }
 
-    fun sendNotification(id: String, pkg: String, appName: String, title: String, text: String, key: String = "", canReply: Boolean = false) {
+    fun sendNotification(
+        id: String,
+        pkg: String,
+        appName: String,
+        title: String,
+        text: String,
+        key: String = "",
+        canReply: Boolean = false,
+        actions: List<NotificationActionItem>? = null
+    ) {
         val payload = NotificationPayload(
             id = id,
             package_name = pkg,
@@ -468,7 +490,8 @@ class SyncWebSocketClient(
             text = text,
             timestamp = System.currentTimeMillis(),
             key = key,
-            can_reply = canReply
+            can_reply = canReply,
+            actions = actions
         )
         // Sadece yetkili bilgisayarlara bildirim gönder
         for (host in hosts.values) {

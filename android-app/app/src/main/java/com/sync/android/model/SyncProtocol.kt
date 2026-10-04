@@ -25,6 +25,7 @@ object ProtocolEvents {
     const val FILE_AVAILABLE = "file_available"
     const val FILE_UPLOAD_NOTIFY = "file_upload_notify"
     const val NOTIFICATION_REPLY = "notification_reply"
+    const val NOTIFICATION_ACTION = "notification_action"
     const val REMOTE_ACTION = "remote_action"
     const val OPEN_URL = "open_url"
     const val CONTACTS_REQUEST = "contacts_request"
@@ -69,6 +70,12 @@ data class DeviceInfoPayload(
     val is_charging: Boolean
 )
 
+data class NotificationActionItem(
+    val index: Int,
+    val title: String,
+    val is_reply: Boolean = false
+)
+
 data class NotificationPayload(
     val id: String,
     val package_name: String,
@@ -77,7 +84,8 @@ data class NotificationPayload(
     val text: String,
     val timestamp: Long,
     val key: String? = null,
-    val can_reply: Boolean = false
+    val can_reply: Boolean = false,
+    val actions: List<NotificationActionItem>? = null
 )
 
 data class FileAvailablePayload(
@@ -103,6 +111,11 @@ data class NotificationReplyPayload(
     val notification_key: String,
     val action_index: Int = 0,
     val reply_text: String
+)
+
+data class NotificationActionPayload(
+    val notification_key: String,
+    val action_index: Int
 )
 
 data class RemoteActionPayload(

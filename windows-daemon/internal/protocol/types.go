@@ -25,6 +25,7 @@ const (
 	EventFileAvailable        = "file_available"
 	EventFileUploadNotify     = "file_upload_notify"
 	EventNotificationReply    = "notification_reply"
+	EventNotificationAction   = "notification_action"
 	EventRemoteAction         = "remote_action"
 	EventOpenUrl              = "open_url"
 	EventContactsRequest      = "contacts_request"
@@ -74,16 +75,24 @@ type DeviceInfoPayload struct {
 	IsCharging   bool   `json:"is_charging"`
 }
 
+// NotificationActionItem represents an actionable button inside a notification.
+type NotificationActionItem struct {
+	Index   int    `json:"index"`
+	Title   string `json:"title"`
+	IsReply bool   `json:"is_reply"`
+}
+
 // NotificationPayload contains Android notification data.
 type NotificationPayload struct {
-	ID          string `json:"id"`
-	PackageName string `json:"package_name"`
-	AppName     string `json:"app_name"`
-	Title       string `json:"title"`
-	Text        string `json:"text"`
-	Timestamp   int64  `json:"timestamp"`
-	Key         string `json:"key,omitempty"`
-	CanReply    bool   `json:"can_reply,omitempty"`
+	ID          string                   `json:"id"`
+	PackageName string                   `json:"package_name"`
+	AppName     string                   `json:"app_name"`
+	Title       string                   `json:"title"`
+	Text        string                   `json:"text"`
+	Timestamp   int64                    `json:"timestamp"`
+	Key         string                   `json:"key,omitempty"`
+	CanReply    bool                     `json:"can_reply,omitempty"`
+	Actions     []NotificationActionItem `json:"actions,omitempty"`
 }
 
 // CallStatePayload represents the state of phone calls.
@@ -193,6 +202,12 @@ type NotificationReplyPayload struct {
 	NotificationKey string `json:"notification_key"`
 	ActionIndex     int    `json:"action_index"`
 	ReplyText       string `json:"reply_text"`
+}
+
+// NotificationActionPayload is sent when a user clicks an action button on a notification from PC.
+type NotificationActionPayload struct {
+	NotificationKey string `json:"notification_key"`
+	ActionIndex     int    `json:"action_index"`
 }
 
 // RemoteActionPayload carries remote control requests (lock, sleep, etc.)
