@@ -73,6 +73,7 @@ class SyncWebSocketClient(
     var onScreenTextReceived: ((ScreenTextPayload, String) -> Unit)? = null
     var onScreenDimReceived: ((ScreenDimPayload, String) -> Unit)? = null
     var onRingerCommandReceived: ((RingerCommandPayload, String) -> Unit)? = null
+    var onHostDisconnected: ((String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -157,6 +158,7 @@ class SyncWebSocketClient(
         host.isAuthorized = false
         host.webSocket = null
         notifyConnectionChange()
+        onHostDisconnected?.invoke(key)
 
         // Schedule auto-reconnect after 4 seconds
         mainHandler.postDelayed({
@@ -672,16 +674,6 @@ class SyncWebSocketClient(
         }
     }
 
-    fun sendMediaCommand(action: String, targetHostKey: String? = null) {
-        val payload = MediaCommandPayload(action = action)
-        val json = payload.toSyncMessage(ProtocolEvents.MEDIA_COMMAND)
-        if (targetHostKey != null) {
-            sendMessageTo(targetHostKey, json)
-        } else {
-            broadcastMessage(json)
-        }
-    }
-
     fun sendMediaSeekPercent(percent: Double, targetHostKey: String? = null) {
         val payload = MediaCommandPayload(action = "SEEK_PERCENT", percent = percent)
         val json = payload.toSyncMessage(ProtocolEvents.MEDIA_COMMAND)
@@ -877,8 +869,15 @@ class SyncWebSocketClient(
         }
     }
 
-    fun sendScreenMirrorFrame(frame: ScreenMirrorFramePayload) {
-        broadcastMessage(frame.toSyncMessage(ProtocolEvents.SCREEN_MIRROR_FRAME))
+    fun sendScreenMirrorFrame(frame: ScreenMirrorFramePayload, targetHostKeys: Set<String>? = null) {
+        val json = frame.toSyncMessage(ProtocolEvents.SCREEN_MIRROR_FRAME)
+        if (targetHostKeys != null) {
+            for (key in targetHostKeys) {
+                sendMessageTo(key, json)
+            }
+        } else {
+            broadcastMessage(json)
+        }
     }
 
     fun sendStorageMountStatus(status: StorageMountStatusPayload, targetHostKey: String? = null) {

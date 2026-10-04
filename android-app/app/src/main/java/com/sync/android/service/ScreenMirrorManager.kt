@@ -62,6 +62,7 @@ class ScreenMirrorManager(private val context: Context) {
     }
 
     fun isMediaProjectionReady(): Boolean = mediaProjection != null
+    fun isMirroring(): Boolean = isMirroring.get()
 
     fun startMirroring(quality: Int = 65) {
         if (isMirroring.get()) return

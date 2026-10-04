@@ -57,11 +57,13 @@ class SyncForegroundService : Service() {
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
-    var onMacMediaInfoUpdate: ((com.sync.android.model.MediaInfoPayload) -> Unit)? = null
     var onHostMediaInfoUpdate: ((info: com.sync.android.model.MediaInfoPayload, hostName: String, hostKey: String) -> Unit)? = null
     var onPairingRequested: ((com.sync.android.network.ConnectedHost, String) -> Unit)? = null
-    var lastMacMedia: com.sync.android.model.MediaInfoPayload? = null
     var connectedServerName: String = "Cihaz Aranıyor 🟡"
+
+    val activeScreenMirrorHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile var activeCallAudioHostKey: String? = null
+    val activeStorageMountHosts = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
 
     private val mediaReporterHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -89,7 +91,12 @@ class SyncForegroundService : Service() {
         screenDimManager = ScreenDimManager(this)
 
         screenMirrorManager.onFrameEncoded = { b64, w, h ->
-            webSocketClient?.sendScreenMirrorFrame(ScreenMirrorFramePayload(width = w, height = h, data = b64))
+            if (activeScreenMirrorHosts.isNotEmpty()) {
+                webSocketClient?.sendScreenMirrorFrame(
+                    ScreenMirrorFramePayload(width = w, height = h, data = b64),
+                    targetHostKeys = activeScreenMirrorHosts
+                )
+            }
         }
 
         hotspotManager.onStatusChanged = { status ->
@@ -97,12 +104,18 @@ class SyncForegroundService : Service() {
         }
 
         callAudioBridgeManager.onAudioDataCaptured = { b64 ->
-            webSocketClient?.sendCallAudioBridge(CallAudioBridgePayload(
-                action = "DATA",
-                direction = "PHONE_TO_PC",
-                data = b64,
-                sample_rate = 16000
-            ))
+            val target = activeCallAudioHostKey
+            if (target != null) {
+                webSocketClient?.sendCallAudioBridge(
+                    CallAudioBridgePayload(
+                        action = "DATA",
+                        direction = "PHONE_TO_PC",
+                        data = b64,
+                        sample_rate = 16000
+                    ),
+                    targetHostKey = target
+                )
+            }
         }
 
         createNotificationChannel()
@@ -299,8 +312,6 @@ class SyncForegroundService : Service() {
                 PhoneController.handleAction(this@SyncForegroundService, action)
             }
             onMediaInfoReceived = { info, hostName, hostKey ->
-                lastMacMedia = info
-                onMacMediaInfoUpdate?.invoke(info)
                 onHostMediaInfoUpdate?.invoke(info, hostName, hostKey)
             }
             onCallActionReceived = { action, number, value, _ ->
@@ -369,15 +380,21 @@ class SyncForegroundService : Service() {
             }
             onScreenMirrorRequested = { payload, hostKey ->
                 if (payload.action == "START") {
+                    activeScreenMirrorHosts.add(hostKey)
                     if (screenMirrorManager.isMediaProjectionReady()) {
-                        screenMirrorManager.startMirroring(payload.quality)
+                        if (!screenMirrorManager.isMirroring()) {
+                            screenMirrorManager.startMirroring(payload.quality)
+                        }
                     } else {
                         MainActivity.instance?.runOnUiThread {
                             MainActivity.instance?.requestScreenCapture()
                         }
                     }
                 } else {
-                    screenMirrorManager.stopMirroring()
+                    activeScreenMirrorHosts.remove(hostKey)
+                    if (activeScreenMirrorHosts.isEmpty()) {
+                        screenMirrorManager.stopMirroring()
+                    }
                 }
             }
             onScreenTouchReceived = { payload, _ ->
@@ -385,6 +402,7 @@ class SyncForegroundService : Service() {
             }
             onStorageMountRequested = { payload, hostKey ->
                 if (payload.action == "START") {
+                    activeStorageMountHosts.add(hostKey)
                     val ok = webDavServer.start()
                     val localIp = getLocalIpAddress()
                     webSocketClient?.sendStorageMountStatus(
@@ -397,7 +415,10 @@ class SyncForegroundService : Service() {
                         targetHostKey = hostKey
                     )
                 } else if (payload.action == "STOP") {
-                    webDavServer.stop()
+                    activeStorageMountHosts.remove(hostKey)
+                    if (activeStorageMountHosts.isEmpty()) {
+                        webDavServer.stop()
+                    }
                     webSocketClient?.sendStorageMountStatus(
                         StorageMountStatusPayload(
                             enabled = false,
@@ -431,11 +452,31 @@ class SyncForegroundService : Service() {
             }
             onCallAudioBridgeReceived = { payload, hostKey ->
                 if (payload.action == "START") {
+                    activeCallAudioHostKey = hostKey
                     callAudioBridgeManager.startBridge()
                 } else if (payload.action == "STOP") {
-                    callAudioBridgeManager.stopBridge()
+                    if (activeCallAudioHostKey == null || activeCallAudioHostKey == hostKey) {
+                        activeCallAudioHostKey = null
+                        callAudioBridgeManager.stopBridge()
+                    }
                 } else if (payload.action == "DATA" && payload.direction == "PC_TO_PHONE" && payload.data != null) {
-                    callAudioBridgeManager.handleIncomingPCAudio(payload.data)
+                    if (activeCallAudioHostKey == null || activeCallAudioHostKey == hostKey) {
+                        callAudioBridgeManager.handleIncomingPCAudio(payload.data)
+                    }
+                }
+            }
+            onHostDisconnected = { hostKey ->
+                activeScreenMirrorHosts.remove(hostKey)
+                if (activeScreenMirrorHosts.isEmpty()) {
+                    screenMirrorManager.stopMirroring()
+                }
+                if (activeCallAudioHostKey == hostKey) {
+                    activeCallAudioHostKey = null
+                    callAudioBridgeManager.stopBridge()
+                }
+                activeStorageMountHosts.remove(hostKey)
+                if (activeStorageMountHosts.isEmpty()) {
+                    webDavServer.stop()
                 }
             }
             onAppListRequested = { hostKey ->
@@ -698,6 +739,9 @@ class SyncForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        activeScreenMirrorHosts.clear()
+        activeStorageMountHosts.clear()
+        activeCallAudioHostKey = null
         screenMirrorManager.stopMirroring()
         webDavServer.stop()
         hotspotManager.stopHotspot()

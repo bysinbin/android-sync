@@ -889,18 +889,18 @@ class MainActivity : AppCompatActivity() {
             sendTouchpadKey("ENTER")
         }
 
-        // Biometric Unlock & PIN Setup
-        val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
-        val savedPin = prefs.getString("pc_unlock_pin", "") ?: ""
-        if (savedPin.isNotEmpty()) {
-            etUnlockPin.setText(savedPin)
-        }
+        // Biometric Unlock & PIN Setup (Per-Host Configured)
+        refreshUnlockPinUI()
 
         btnSaveUnlockPin.setOnClickListener {
             val pin = etUnlockPin.text.toString().trim()
-            prefs.edit().putString("pc_unlock_pin", pin).apply()
+            val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+            val key = getUnlockPinPrefKey(selectedTouchpadHostKey)
+            prefs.edit().putString(key, pin).putString("pc_unlock_pin", pin).apply()
             it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
-            Toast.makeText(this, if (pin.isNotEmpty()) "PIN kaydedildi ✅" else "PIN temizlendi", Toast.LENGTH_SHORT).show()
+            val targetName = getHostDisplayName(selectedTouchpadHostKey)
+            Toast.makeText(this, if (pin.isNotEmpty()) "PIN kaydedildi ($targetName) ✅" else "PIN temizlendi ($targetName)", Toast.LENGTH_SHORT).show()
+            refreshUnlockPinUI()
         }
 
         btnBiometricUnlock.setOnClickListener {
@@ -1033,10 +1033,12 @@ class MainActivity : AppCompatActivity() {
         )
 
         val targetName = getHostDisplayName(selectedTouchpadHostKey)
+        val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+        val key = getUnlockPinPrefKey(selectedTouchpadHostKey)
+        val pin = prefs.getString(key, null) ?: prefs.getString("pc_unlock_pin", null)
+
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
             // Cihazda biyometri veya kilit yoksa, doğrudan kayıtlı PIN ile açmayı dene
-            val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
-            val pin = prefs.getString("pc_unlock_pin", null)
             SyncForegroundService.instance?.sendBiometricUnlock(pin, targetHostKey = selectedTouchpadHostKey)
             Toast.makeText(this, "🔐 Kilit açma komutu gönderildi ($targetName)", Toast.LENGTH_SHORT).show()
             return
@@ -1046,8 +1048,6 @@ class MainActivity : AppCompatActivity() {
         val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
             override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                 super.onAuthenticationSucceeded(result)
-                val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
-                val pin = prefs.getString("pc_unlock_pin", null)
                 SyncForegroundService.instance?.sendBiometricUnlock(pin, targetHostKey = selectedTouchpadHostKey)
                 Toast.makeText(this@MainActivity, "✅ Parmak izi doğrulandı, $targetName kilidi açılıyor...", Toast.LENGTH_SHORT).show()
             }
@@ -1242,6 +1242,19 @@ class MainActivity : AppCompatActivity() {
         return host?.name ?: hostKey
     }
 
+    private fun getUnlockPinPrefKey(hostKey: String?): String {
+        return if (hostKey.isNullOrEmpty()) "pc_unlock_pin" else "pc_unlock_pin_$hostKey"
+    }
+
+    private fun refreshUnlockPinUI() {
+        val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+        val key = getUnlockPinPrefKey(selectedTouchpadHostKey)
+        val pin = prefs.getString(key, "") ?: prefs.getString("pc_unlock_pin", "") ?: ""
+        etUnlockPin.setText(pin)
+        val hostName = getHostDisplayName(selectedTouchpadHostKey)
+        btnSaveUnlockPin.text = if (selectedTouchpadHostKey != null) "Kaydet ($hostName)" else "PIN Kaydet"
+    }
+
     private fun createPill(title: String, isSelected: Boolean, onClick: () -> Unit): TextView {
         return TextView(this).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -1311,6 +1324,7 @@ class MainActivity : AppCompatActivity() {
                 updateTargetHostSelectors()
             })
         }
+        refreshUnlockPinUI()
 
         // --- 2. Media Target Selector ---
         refreshMediaPills()
