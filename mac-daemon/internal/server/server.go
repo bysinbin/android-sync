@@ -129,6 +129,15 @@ type SyncServer struct {
 	contactsMu       sync.RWMutex
 	photos           []protocol.PhotoItem
 	photosMu         sync.RWMutex
+	lastMirrorFrame   *protocol.ScreenMirrorFramePayload
+	mirrorMu          sync.RWMutex
+	lastStorageStatus *protocol.StorageMountStatusPayload
+	storageMu         sync.RWMutex
+	lastHotspotStatus *protocol.HotspotStatusPayload
+	hotspotMu         sync.RWMutex
+	isCallAudioActive bool
+	callAudioMu       sync.RWMutex
+	lastAudioFrame    string
 }
 
 type TransferredFile struct {
@@ -1419,6 +1428,47 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 		}
 
 
+	case protocol.EventScreenMirrorFrame:
+		var p protocol.ScreenMirrorFramePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.mirrorMu.Lock()
+			s.lastMirrorFrame = &p
+			s.mirrorMu.Unlock()
+		}
+
+	case protocol.EventStorageMountStatus:
+		var p protocol.StorageMountStatusPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.storageMu.Lock()
+			s.lastStorageStatus = &p
+			s.storageMu.Unlock()
+			log.Printf("[WebDAV] 📁 Telefon depolama durumu: aktif=%v, port=%d, url=%s", p.Enabled, p.Port, p.URL)
+		}
+
+	case protocol.EventHotspotStatus:
+		var p protocol.HotspotStatusPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.hotspotMu.Lock()
+			s.lastHotspotStatus = &p
+			s.hotspotMu.Unlock()
+			log.Printf("[Hotspot] 📡 Hotspot durumu: aktif=%v, ssid=%s", p.Enabled, p.SSID)
+		}
+
+	case protocol.EventCallAudioBridge:
+		var p protocol.CallAudioBridgePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.callAudioMu.Lock()
+			if p.Action == "START" {
+				s.isCallAudioActive = true
+			} else if p.Action == "STOP" {
+				s.isCallAudioActive = false
+			}
+			if p.Data != "" {
+				s.lastAudioFrame = p.Data
+			}
+			s.callAudioMu.Unlock()
+		}
+
 	case protocol.EventPong:
 		// Heartbeat
 	}
@@ -1466,6 +1516,55 @@ func (s *SyncServer) RequestPhotoDownload(photoID int64) {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Galeri] Fotoğraf indirme isteği telefona gönderildi: id=%d", photoID)
+	}
+}
+
+func (s *SyncServer) SendScreenMirrorRequest(action string, quality int) {
+	msg, err := protocol.NewMessage(protocol.EventScreenMirrorRequest, protocol.ScreenMirrorRequestPayload{
+		Action:  action,
+		Quality: quality,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Ekran Yansıtma] İstek gönderildi: action=%s, quality=%d", action, quality)
+	}
+}
+
+func (s *SyncServer) SendScreenTouch(action string, x, y float32) {
+	msg, err := protocol.NewMessage(protocol.EventScreenTouch, protocol.ScreenTouchPayload{
+		Action: action,
+		X:      x,
+		Y:      y,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+func (s *SyncServer) SendStorageMountRequest(action string) {
+	msg, err := protocol.NewMessage(protocol.EventStorageMountRequest, protocol.StorageMountRequestPayload{
+		Action: action,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[WebDAV] Depolama isteği gönderildi: action=%s", action)
+	}
+}
+
+func (s *SyncServer) SendHotspotCommand(action string) {
+	msg, err := protocol.NewMessage(protocol.EventHotspotCommand, protocol.HotspotCommandPayload{
+		Action: action,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Hotspot] Komut gönderildi: action=%s", action)
+	}
+}
+
+func (s *SyncServer) SendCallAudioBridge(payload protocol.CallAudioBridgePayload) {
+	msg, err := protocol.NewMessage(protocol.EventCallAudioBridge, payload)
+	if err == nil {
+		s.Broadcast(msg)
 	}
 }
 

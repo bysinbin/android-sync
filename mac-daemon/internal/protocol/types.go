@@ -36,6 +36,14 @@ const (
 	EventPhotosRequest        = "photos_request"
 	EventPhotosResponse       = "photos_response"
 	EventPhotoDownloadRequest = "photo_download_request"
+	EventScreenMirrorRequest  = "screen_mirror_request"
+	EventScreenMirrorFrame    = "screen_mirror_frame"
+	EventScreenTouch          = "screen_touch"
+	EventStorageMountRequest  = "storage_mount_request"
+	EventStorageMountStatus   = "storage_mount_status"
+	EventHotspotCommand       = "hotspot_command"
+	EventHotspotStatus        = "hotspot_status"
+	EventCallAudioBridge      = "call_audio_bridge"
 	EventPing                 = "ping"
 	EventPong                 = "pong"
 )
@@ -281,6 +289,61 @@ type PhotosResponsePayload struct {
 type PhotoDownloadRequestPayload struct {
 	ID        int64  `json:"id"`
 	UploadURL string `json:"upload_url,omitempty"`
+}
+
+// ScreenMirrorRequestPayload requests starting or stopping screen mirroring.
+type ScreenMirrorRequestPayload struct {
+	Action  string `json:"action"` // "START", "STOP"
+	Quality int    `json:"quality"`
+}
+
+// ScreenMirrorFramePayload carries a frame of the phone screen in base64 JPEG.
+type ScreenMirrorFramePayload struct {
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Data      string `json:"data"` // base64 JPEG
+	Timestamp int64  `json:"timestamp"`
+}
+
+// ScreenTouchPayload carries touch gestures to be injected into the phone screen.
+type ScreenTouchPayload struct {
+	Action string  `json:"action"` // "down", "move", "up"
+	X      float32 `json:"x"`      // 0.0 to 1.0
+	Y      float32 `json:"y"`      // 0.0 to 1.0
+}
+
+// StorageMountRequestPayload requests mounting or unmounting phone storage.
+type StorageMountRequestPayload struct {
+	Action string `json:"action"` // "START", "STOP", "STATUS"
+}
+
+// StorageMountStatusPayload carries WebDAV server details on the phone.
+type StorageMountStatusPayload struct {
+	Enabled bool   `json:"enabled"`
+	Port    int    `json:"port"`
+	URL     string `json:"url"`
+	Path    string `json:"path"`
+}
+
+// HotspotCommandPayload carries commands to control phone mobile hotspot.
+type HotspotCommandPayload struct {
+	Action string `json:"action"` // "START", "STOP", "STATUS"
+}
+
+// HotspotStatusPayload carries the Wi-Fi credentials for instant connection.
+type HotspotStatusPayload struct {
+	Enabled  bool   `json:"enabled"`
+	SSID     string `json:"ssid"`
+	Password string `json:"password"`
+	IP       string `json:"ip,omitempty"`
+}
+
+// CallAudioBridgePayload carries real-time PCM audio for hands-free calls.
+type CallAudioBridgePayload struct {
+	Action     string `json:"action"`              // "START", "STOP", "DATA"
+	Direction  string `json:"direction,omitempty"` // "PHONE_TO_PC", "PC_TO_PHONE"
+	Data       string `json:"data,omitempty"`      // base64 PCM 16kHz
+	SampleRate int    `json:"sample_rate,omitempty"`
 }
 
 // Helper to construct a Message with serialized payload.

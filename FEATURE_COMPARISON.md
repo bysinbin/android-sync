@@ -21,15 +21,15 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Arama Sırasında PC Medyasını Otomatik Duraklatma | ✅ Var | ❌ Yok | ✅ Var |
 | | PC Ses Düzeyi Yönetimi | ✅ Var | ❌ Yok | ✅ Var |
 | **Arama & SMS** | Gelen Arama Uyarısı & Bildirimi | ✅ Var | ✅ Var | ✅ Var |
-| | PC Üzerinden Sesli Telefon Görüşmesi (HFP Audio) | ❌ Eksik | ✅ Var | ❌ Yok |
+| | PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free PCM Audio) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | | Arama Başlatma (DIAL) / Reddetme / Sessize Alma | ✅ Var | ✅ Var | ⚠️ Kısmi |
 | | SMS Geçmişi Görüntüleme & PC'den SMS Gönderme | ✅ Var | ✅ Var | ✅ Var |
 | | Telefon Rehberi (Contacts) Entegrasyonu | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Dosya & Depolama** | Hızlı Kablosuz Dosya Transferi (Share to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ⚠️ Sadece Samsung/Honor | ✅ Tam |
-| | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (SFTP) | ❌ Eksik | ❌ Yok | ✅ Var |
+| | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (WebDAV - Z:\) | ✅ **Var (Tamamlandı - Z:\)** | ❌ Yok | ✅ Var |
 | | Fotoğraf Galerisi Gezgini (Photos Explorer & Lightbox) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
-| **Ekran & Uygulama** | Telefon Ekranını Yansıtma (Screen Mirroring) | ❌ Eksik | ✅ Var | ❌ Yok |
-| | Android Uygulamalarını Bağımsız Pencerede Açma | ❌ Eksik | ✅ Var | ❌ Yok |
+| **Ekran & Uygulama** | Telefon Ekranını Yansıtma & Uzaktan Dokunma (Screen Mirroring & Touch) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
+| | Android Uygulamalarını Bağımsız Pencerede Açma | ⚠️ Gelecek Planı | ✅ Var | ❌ Yok |
 | **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
 | | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ✅ **Var (Tamamlandı - Hotkeys)** | ❌ Yok | ✅ Var |
 | | Sunum Kumandası (Slayt Değiştirici & Pointer) | ✅ **Var (Tamamlandı - F5/Esc/Slayt)** | ❌ Yok | ✅ Var |
@@ -38,7 +38,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | **Pano & Sistem** | Ortak Pano (Düz Metin) | ✅ Var | ✅ Var | ✅ Var |
 | | Ortak Pano (Görsel ve Zengin İçerik) | ✅ **Var (Tamamlandı)** | ✅ Var | ✅ Var |
 | | Telefonu Bul (Uzaktan Çaldır & Sustur) | ✅ Var | ❌ Yok | ✅ Var |
-| | Anlık Kişisel Erişim Noktası (Instant Hotspot) | ❌ Eksik | ✅ Var | ❌ Yok |
+| | Anlık Kişisel Erişim Noktası (Instant Hotspot) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | | Sekme / URL Paylaşımı (Send Tab to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ❌ Yok | ✅ Var |
 
 ---
@@ -126,20 +126,23 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 ---
 
-## 🚀 Sonraki Aşamalar İçin Geliştirme Yol Haritası (Öncelik Sırasıyla)
+## 🚀 Geliştirme Yol Haritası ve Tamamlanan Modüller
 
 ```mermaid
 graph TD
-    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama & Aksiyon Butonları, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu, Sanal Touchpad & Biyometrik Kilit Açma] --> B[Aktif / Sonraki: Canlı Telefon Ekranı Yansıtma / Scrcpy]
+    A[Wi-Fi Dosya Transferi & Pano Senkronizasyonu] --> B[Bildirimden Yanıt & Aksiyonlar & Arama Kontrolü]
+    B[Bildirimden Yanıt & Aksiyonlar & Arama Kontrolü] --> C[Rehber & Fotoğraf Galerisi & Görsel Panosu]
+    C[Rehber & Fotoğraf Galerisi & Görsel Panosu] --> D[Sanal Touchpad, Sunum Kumandası & Biyometrik Kilit Açma]
+    D[Sanal Touchpad, Sunum Kumandası & Biyometrik Kilit Açma] --> E[Canlı Ekran Yansıtma, WebDAV Sürücüsü Z:\, Instant Hotspot & Hands-Free PC Ses Köprüsü]
 ```
 
-### Tamamlanan ve Sıradaki Geliştirme Fazları:
-- **Faz 1 (Yüksek Öncelik - Tamamlananlar):**
-  - **Bildirim Aksiyon Butonları (Notification Actions):** *(✅ Tamamlandı)* Telefonda bildirimle gelen interaktif butonların (Örn: "Okundu Say", "Arşive Kaldır", "Onayla") PC ve Mac arayüzünde canlı butonlar olarak listelenmesi ve tıklandığında anında telefonda tetiklenmesi.
-  - **Çift Yönlü Bildirim Kapatma (Dismiss Sync):** *(✅ Tamamlandı)* PC'de veya Mac'te bildirim kapatıldığında (✕) anında telefondan da silinmesi; aynı şekilde telefonda kaydırılarak kapatılan bildirimlerin PC ve Mac arayüzünden anında temizlenmesi.
-  - **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas bir dokunmatik laptop trackpad'i (1 parmak imleç, 1 parmak tıkla sol tık, 2 parmak tıkla sağ tık, 2 parmak dikey kaydır kaydırma/scroll) veya slayt / sunum uzaktan kumandası (F5, Esc, Enter, Önceki/Sonraki Slayt) olarak kullanarak Windows ve macOS'u gecikmesiz yönetebilme.
-  - **Biyometrik Kilit Açma (Biometric Unlock):** *(✅ Tamamlandı)* Android `BiometricPrompt` ile telefonun parmak izi veya yüz tanıması kullanılarak Windows veya Mac kilit ekranının anında uyandırılması ve isteğe bağlı PIN/parolanın güvenle tuşlanıp masaüstünün açılması.
-- **Faz 2 (İleri Düzey Entegrasyonlar - Sonraki):**
-  - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme ve uzaktan kontrol.
+### Tamamlanan Yetenekler & Modüller:
+- **Canlı Ekran Yansıtma & Uzaktan Dokunma (Screen Mirroring & Remote Touch):** *(✅ Tamamlandı)* Android `MediaProjection` tabanlı canlı ekran yakalama, MJPEG ve WebSocket akışı; web panelinden interaktif fare tıklamaları ve dokunma hareketleri ile telefon kontrolü ve sanal gezinme tuşları (Geri, Ana Ekran, Son Uygulamalar).
+- **Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (WebDAV - Z:\):** *(✅ Tamamlandı)* Telefonda çalışan yerleşik WebDAV sunucusu (`port 8088`) ile Windows Gezgini'ne doğrudan `Z:\` sürücüsü olarak bağlanma, doğrudan dosya okuma, yazma ve gezinme.
+- **Anlık Kişisel Erişim Noktası (Instant Hotspot):** *(✅ Tamamlandı)* Telefonda hotspot menüleriyle uğraşmadan tek tıkla hücresel internet paylaşımı başlatma ve PC'nin otomatik Wi-Fi profili oluşturup bağlanması.
+- **PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free PCM Audio Bridge):** *(✅ Tamamlandı)* Görüşme sırasında telefon mikrofonunun 16kHz PCM olarak PC hoparlörüne aktarılması ve PC mikrofonunun telefona çift yönlü iletilmesiyle eller serbest çağrı deneyimi.
+- **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas dokunmatik laptop trackpad'i veya slayt / sunum uzaktan kumandası olarak gecikmesiz kullanabilme.
+- **Biyometrik Kilit Açma (Biometric Unlock):** *(✅ Tamamlandı)* Android `BiometricPrompt` ile telefonun parmak izi veya yüz tanımasıyla Windows veya Mac kilidinin anında açılması.
+- **Görsel Panosu & Sekme Paylaşımı & Fotoğraf Galerisi & Rehber Entegrasyonu:** *(✅ Tamamlandı)* Çift yönlü görsel kopyalama, anlık sekme aktarımı, fotoğraf önizleme/indirme ve rehber senkronizasyonu.
 
 

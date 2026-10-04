@@ -47,6 +47,31 @@ import com.sync.android.service.ContactsManager
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        var instance: MainActivity? = null
+    }
+
+    val screenCaptureLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK && result.data != null) {
+            val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as android.media.projection.MediaProjectionManager
+            val mediaProjection = projectionManager.getMediaProjection(result.resultCode, result.data!!)
+            SyncForegroundService.instance?.screenMirrorManager?.setMediaProjection(mediaProjection)
+            SyncForegroundService.instance?.screenMirrorManager?.startMirroring()
+            Toast.makeText(this, "✅ Ekran Yansıtma Başlatıldı", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "❌ Ekran Yansıtma İzni Reddedildi", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun requestScreenCapture() {
+        val projectionManager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as? android.media.projection.MediaProjectionManager
+        if (projectionManager != null) {
+            screenCaptureLauncher.launch(projectionManager.createScreenCaptureIntent())
+        }
+    }
+
     private lateinit var tvStatusBadge: TextView
     private lateinit var tvPhoneModel: TextView
     private lateinit var tvConnectedSummary: TextView
@@ -209,6 +234,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        instance = this
         setContentView(R.layout.activity_main)
 
         val root = findViewById<View>(R.id.rootLayout)
@@ -330,6 +356,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (instance == this) instance = null
         mainHandler.removeCallbacks(uiRefresher)
         mainHandler.removeCallbacks(mediaTicker)
         activePairingDialog?.dismiss()
@@ -1331,7 +1358,9 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.READ_SMS,
             Manifest.permission.SEND_SMS,
             Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_CONTACTS
+            Manifest.permission.READ_CONTACTS,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.ACCESS_FINE_LOCATION
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
@@ -1340,6 +1369,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.ANSWER_PHONE_CALLS)
+            permissions.add(Manifest.permission.CALL_PHONE)
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)

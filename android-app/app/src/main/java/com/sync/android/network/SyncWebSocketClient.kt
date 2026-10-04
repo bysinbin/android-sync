@@ -62,6 +62,11 @@ class SyncWebSocketClient(
     var onContactsRequestReceived: ((hostKey: String) -> Unit)? = null
     var onPhotosRequestReceived: ((hostKey: String) -> Unit)? = null
     var onPhotoDownloadRequestReceived: ((photoId: Long, uploadUrl: String?, hostKey: String) -> Unit)? = null
+    var onScreenMirrorRequested: ((ScreenMirrorRequestPayload, String) -> Unit)? = null
+    var onScreenTouchReceived: ((ScreenTouchPayload, String) -> Unit)? = null
+    var onStorageMountRequested: ((StorageMountRequestPayload, String) -> Unit)? = null
+    var onHotspotCommandReceived: ((HotspotCommandPayload, String) -> Unit)? = null
+    var onCallAudioBridgeReceived: ((CallAudioBridgePayload, String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -386,6 +391,61 @@ class SyncWebSocketClient(
                             onPhotoDownloadRequestReceived?.invoke(p.id, p.upload_url, hostKey)
                         } catch (e: Exception) {
                             Log.e(TAG, "PHOTO_DOWNLOAD_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.SCREEN_MIRROR_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, ScreenMirrorRequestPayload::class.java)
+                            onScreenMirrorRequested?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SCREEN_MIRROR_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.SCREEN_TOUCH -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, ScreenTouchPayload::class.java)
+                            onScreenTouchReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SCREEN_TOUCH parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.STORAGE_MOUNT_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, StorageMountRequestPayload::class.java)
+                            onStorageMountRequested?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "STORAGE_MOUNT_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.HOTSPOT_COMMAND -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, HotspotCommandPayload::class.java)
+                            onHotspotCommandReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "HOTSPOT_COMMAND parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.CALL_AUDIO_BRIDGE -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, CallAudioBridgePayload::class.java)
+                            onCallAudioBridgeReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "CALL_AUDIO_BRIDGE parse hatası: ${e.message}")
                         }
                     }
                 }
@@ -730,6 +790,37 @@ class SyncWebSocketClient(
     fun sendPhotosResponse(photos: List<PhotoItem>, targetHostKey: String? = null) {
         val payload = PhotosResponsePayload(photos = photos, count = photos.size)
         val json = payload.toSyncMessage(ProtocolEvents.PHOTOS_RESPONSE)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendScreenMirrorFrame(frame: ScreenMirrorFramePayload) {
+        broadcastMessage(frame.toSyncMessage(ProtocolEvents.SCREEN_MIRROR_FRAME))
+    }
+
+    fun sendStorageMountStatus(status: StorageMountStatusPayload, targetHostKey: String? = null) {
+        val json = status.toSyncMessage(ProtocolEvents.STORAGE_MOUNT_STATUS)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendHotspotStatus(status: HotspotStatusPayload, targetHostKey: String? = null) {
+        val json = status.toSyncMessage(ProtocolEvents.HOTSPOT_STATUS)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendCallAudioBridge(payload: CallAudioBridgePayload, targetHostKey: String? = null) {
+        val json = payload.toSyncMessage(ProtocolEvents.CALL_AUDIO_BRIDGE)
         if (targetHostKey != null) {
             sendMessageTo(targetHostKey, json)
         } else {

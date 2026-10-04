@@ -70,6 +70,15 @@ type SyncServer struct {
 	contactsMu       sync.RWMutex
 	photos           []protocol.PhotoItem
 	photosMu         sync.RWMutex
+	lastMirrorFrame   *protocol.ScreenMirrorFramePayload
+	mirrorMu          sync.RWMutex
+	lastStorageStatus *protocol.StorageMountStatusPayload
+	storageMu         sync.RWMutex
+	lastHotspotStatus *protocol.HotspotStatusPayload
+	hotspotMu         sync.RWMutex
+	isCallAudioActive bool
+	callAudioMu       sync.RWMutex
+	lastAudioFrame    string
 }
 
 type TransferredFile struct {
@@ -322,6 +331,26 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		statusResp["downloads_dir"] = getDownloadsDir()
 		statusResp["contacts_count"] = contactsCount
 		statusResp["photos_count"] = photosCount
+
+		s.mirrorMu.RLock()
+		statusResp["screen_mirror_active"] = s.lastMirrorFrame != nil
+		s.mirrorMu.RUnlock()
+
+		s.storageMu.RLock()
+		if s.lastStorageStatus != nil {
+			statusResp["storage_status"] = s.lastStorageStatus
+		}
+		s.storageMu.RUnlock()
+
+		s.hotspotMu.RLock()
+		if s.lastHotspotStatus != nil {
+			statusResp["hotspot_status"] = s.lastHotspotStatus
+		}
+		s.hotspotMu.RUnlock()
+
+		s.callAudioMu.RLock()
+		statusResp["call_audio_active"] = s.isCallAudioActive
+		s.callAudioMu.RUnlock()
 
 		_ = json.NewEncoder(w).Encode(statusResp)
 	})
@@ -914,6 +943,246 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "id": id})
 	})
 
+	// Screen Mirroring Control API
+	mux.HandleFunc("/screen/mirror", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "" {
+			action = "START"
+		}
+		quality := 65
+		if qStr := r.URL.Query().Get("quality"); qStr != "" {
+			_, _ = fmt.Sscanf(qStr, "%d", &quality)
+		}
+		log.Printf("[Ekran Yansıtma] Komut gönderiliyor: %s (kalite=%d)", action, quality)
+		s.SendScreenMirrorRequest(action, quality)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Screen Touch Input API
+	mux.HandleFunc("/screen/touch", func(w http.ResponseWriter, r *http.Request) {
+		action := r.URL.Query().Get("action")
+		var x, y float32
+		if xStr := r.URL.Query().Get("x"); xStr != "" {
+			var x64 float64
+			_, _ = fmt.Sscanf(xStr, "%f", &x64)
+			x = float32(x64)
+		}
+		if yStr := r.URL.Query().Get("y"); yStr != "" {
+			var y64 float64
+			_, _ = fmt.Sscanf(yStr, "%f", &y64)
+			y = float32(y64)
+		}
+		s.SendScreenTouch(action, x, y)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Screen Mirror Frame API (fetch latest frame as JSON or raw JPEG)
+	mux.HandleFunc("/screen/frame", func(w http.ResponseWriter, r *http.Request) {
+		s.mirrorMu.RLock()
+		frame := s.lastMirrorFrame
+		s.mirrorMu.RUnlock()
+		if frame == nil || frame.Data == "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"available": false})
+			return
+		}
+		format := r.URL.Query().Get("format")
+		if format == "image" || format == "jpeg" {
+			data, err := base64.StdEncoding.DecodeString(frame.Data)
+			if err == nil {
+				w.Header().Set("Content-Type", "image/jpeg")
+				w.Header().Set("Cache-Control", "no-cache")
+				_, _ = w.Write(data)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"available": true,
+			"width":     frame.Width,
+			"height":    frame.Height,
+			"data":      frame.Data,
+			"timestamp": frame.Timestamp,
+		})
+	})
+
+	// Storage Mount API (WebDAV Network Drive Z:\)
+	mux.HandleFunc("/storage/mount", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		drive := r.URL.Query().Get("drive")
+		if drive == "" {
+			drive = "Z:"
+		}
+		drive = strings.ToUpper(drive)
+		if !strings.HasSuffix(drive, ":") {
+			drive = drive + ":"
+		}
+
+		if action == "UNMOUNT" || action == "STOP" {
+			_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
+			s.SendStorageMountRequest("STOP")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false, "drive": drive})
+			return
+		}
+
+		s.SendStorageMountRequest("START")
+
+		phoneIP := ""
+		s.clientsMu.RLock()
+		for conn := range s.clients {
+			addr := conn.RemoteAddr().String()
+			host, _, _ := net.SplitHostPort(addr)
+			if host != "" && host != "127.0.0.1" {
+				phoneIP = host
+				break
+			}
+		}
+		s.clientsMu.RUnlock()
+
+		if phoneIP == "" {
+			phoneIP = "192.168.50.118"
+		}
+
+		mountURL := fmt.Sprintf("http://%s:8088/", phoneIP)
+		log.Printf("[WebDAV] Windows %s sürücüsü olarak bağlanıyor: %s", drive, mountURL)
+
+		_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
+		cmd := exec.Command("net", "use", drive, mountURL, "/persistent:no")
+		out, err := cmd.CombinedOutput()
+		log.Printf("[WebDAV] net use sonucu: %s (hata=%v)", string(out), err)
+
+		_ = exec.Command("explorer.exe", drive+"\\").Start()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"mounted": true,
+			"drive":   drive,
+			"url":     mountURL,
+			"output":  string(out),
+		})
+	})
+
+	// Storage Unmount API
+	mux.HandleFunc("/storage/unmount", func(w http.ResponseWriter, r *http.Request) {
+		drive := r.URL.Query().Get("drive")
+		if drive == "" {
+			drive = "Z:"
+		}
+		drive = strings.ToUpper(drive)
+		if !strings.HasSuffix(drive, ":") {
+			drive = drive + ":"
+		}
+		_ = exec.Command("net", "use", drive, "/delete", "/y").Run()
+		s.SendStorageMountRequest("STOP")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false, "drive": drive})
+	})
+
+	// Hotspot Toggle API
+	mux.HandleFunc("/hotspot/toggle", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "" {
+			s.hotspotMu.RLock()
+			st := s.lastHotspotStatus
+			s.hotspotMu.RUnlock()
+			if st != nil && st.Enabled {
+				action = "STOP"
+			} else {
+				action = "START"
+			}
+		}
+		log.Printf("[Hotspot] Komut iletiliyor: %s", action)
+		s.SendHotspotCommand(action)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Hotspot Connect API
+	mux.HandleFunc("/hotspot/connect", func(w http.ResponseWriter, r *http.Request) {
+		s.hotspotMu.RLock()
+		st := s.lastHotspotStatus
+		s.hotspotMu.RUnlock()
+
+		if st == nil || !st.Enabled || st.SSID == "" {
+			s.SendHotspotCommand("START")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "Hotspot başlatılıyor, lütfen birazdan tekrar deneyin."})
+			return
+		}
+
+		go func(ssid, password string) {
+			profileXML := fmt.Sprintf(`<?xml version="1.0"?>
+<WLANProfile xmlns="http://www.microsoft.com/networking/WLAN/profile/v1">
+	<name>%s</name>
+	<SSIDConfig><SSID><name>%s</name></SSID></SSIDConfig>
+	<connectionType>ESS</connectionType>
+	<connectionMode>manual</connectionMode>
+	<MSM><security><authEncryption>
+		<authentication>WPA2PSK</authentication>
+		<encryption>AES</encryption>
+		<useOneX>false</useOneX>
+	</authEncryption><sharedKey>
+		<keyType>passPhrase</keyType>
+		<protected>false</protected>
+		<keyMaterial>%s</keyMaterial>
+	</sharedKey></security></MSM>
+</WLANProfile>`, ssid, ssid, password)
+
+			tmpFile := filepath.Join(os.TempDir(), fmt.Sprintf("wifi_%d.xml", time.Now().UnixMilli()))
+			_ = os.WriteFile(tmpFile, []byte(profileXML), 0644)
+			defer os.Remove(tmpFile)
+
+			_ = exec.Command("netsh", "wlan", "add", "profile", fmt.Sprintf("filename=%s", tmpFile)).Run()
+			_ = exec.Command("netsh", "wlan", "connect", fmt.Sprintf("name=%s", ssid)).Run()
+			log.Printf("[Hotspot] Windows Wi-Fi %s ağına bağlandı", ssid)
+		}(st.SSID, st.Password)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"ssid":     st.SSID,
+			"password": st.Password,
+		})
+	})
+
+	// Call Audio Bridge API
+	mux.HandleFunc("/call/audio", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "" {
+			action = "START"
+		}
+		data := r.URL.Query().Get("data")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if d := r.FormValue("data"); d != "" {
+				data = d
+			}
+		}
+
+		if action == "DATA" && data != "" {
+			s.SendCallAudioBridge(protocol.CallAudioBridgePayload{
+				Action:     "DATA",
+				Direction:  "PC_TO_PHONE",
+				Data:       data,
+				SampleRate: 16000,
+			})
+		} else {
+			s.callAudioMu.Lock()
+			s.isCallAudioActive = (action == "START")
+			s.callAudioMu.Unlock()
+			s.SendCallAudioBridge(protocol.CallAudioBridgePayload{
+				Action: action,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -1275,6 +1544,47 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 		}
 
 
+	case protocol.EventScreenMirrorFrame:
+		var p protocol.ScreenMirrorFramePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.mirrorMu.Lock()
+			s.lastMirrorFrame = &p
+			s.mirrorMu.Unlock()
+		}
+
+	case protocol.EventStorageMountStatus:
+		var p protocol.StorageMountStatusPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.storageMu.Lock()
+			s.lastStorageStatus = &p
+			s.storageMu.Unlock()
+			log.Printf("[WebDAV] 📁 Telefon depolama durumu: aktif=%v, port=%d, url=%s", p.Enabled, p.Port, p.URL)
+		}
+
+	case protocol.EventHotspotStatus:
+		var p protocol.HotspotStatusPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.hotspotMu.Lock()
+			s.lastHotspotStatus = &p
+			s.hotspotMu.Unlock()
+			log.Printf("[Hotspot] 📡 Hotspot durumu: aktif=%v, ssid=%s", p.Enabled, p.SSID)
+		}
+
+	case protocol.EventCallAudioBridge:
+		var p protocol.CallAudioBridgePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.callAudioMu.Lock()
+			if p.Action == "START" {
+				s.isCallAudioActive = true
+			} else if p.Action == "STOP" {
+				s.isCallAudioActive = false
+			}
+			if p.Data != "" {
+				s.lastAudioFrame = p.Data
+			}
+			s.callAudioMu.Unlock()
+		}
+
 	case protocol.EventPing:
 		resp, _ := protocol.NewMessage(protocol.EventPong, map[string]int64{"time": time.Now().UnixMilli()})
 		s.Broadcast(resp)
@@ -1326,6 +1636,55 @@ func (s *SyncServer) RequestPhotoDownload(photoID int64) {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Galeri] Fotoğraf indirme isteği telefona gönderildi: id=%d", photoID)
+	}
+}
+
+func (s *SyncServer) SendScreenMirrorRequest(action string, quality int) {
+	msg, err := protocol.NewMessage(protocol.EventScreenMirrorRequest, protocol.ScreenMirrorRequestPayload{
+		Action:  action,
+		Quality: quality,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Ekran Yansıtma] İstek gönderildi: action=%s, quality=%d", action, quality)
+	}
+}
+
+func (s *SyncServer) SendScreenTouch(action string, x, y float32) {
+	msg, err := protocol.NewMessage(protocol.EventScreenTouch, protocol.ScreenTouchPayload{
+		Action: action,
+		X:      x,
+		Y:      y,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+func (s *SyncServer) SendStorageMountRequest(action string) {
+	msg, err := protocol.NewMessage(protocol.EventStorageMountRequest, protocol.StorageMountRequestPayload{
+		Action: action,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[WebDAV] Depolama isteği gönderildi: action=%s", action)
+	}
+}
+
+func (s *SyncServer) SendHotspotCommand(action string) {
+	msg, err := protocol.NewMessage(protocol.EventHotspotCommand, protocol.HotspotCommandPayload{
+		Action: action,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Hotspot] Komut gönderildi: action=%s", action)
+	}
+}
+
+func (s *SyncServer) SendCallAudioBridge(payload protocol.CallAudioBridgePayload) {
+	msg, err := protocol.NewMessage(protocol.EventCallAudioBridge, payload)
+	if err == nil {
+		s.Broadcast(msg)
 	}
 }
 
@@ -2098,6 +2457,13 @@ const dashboardHTML = `<!DOCTYPE html>
                     <span>📸</span> <span>Fotoğraflar</span>
                     <span class="nav-badge" id="photosNavBadge">0</span>
                 </li>
+                <li class="nav-item" onclick="switchTab('screen')">
+                    <span>📱</span> <span>Ekran Yansıtma</span>
+                    <span class="nav-badge" id="screenNavBadge" style="display:none;">Canlı</span>
+                </li>
+                <li class="nav-item" onclick="switchTab('network')">
+                    <span>⚡</span> <span>Ağ &amp; Hotspot</span>
+                </li>
             </ul>
 
             <div style="margin-top: auto; padding: 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-md); font-size: 11px; color: var(--text-muted); text-align: center;">
@@ -2666,6 +3032,168 @@ const dashboardHTML = `<!DOCTYPE html>
                 </div>
             </div>
 
+            <!-- TAB 11: Canlı Ekran Yansıtma & Uzaktan Kontrol -->
+            <div id="tab-screen" class="tab-content">
+                <div style="display:flex; gap: 24px; min-height: calc(100vh - 140px);">
+                    <!-- Sol: Telefon Canlı Ekranı -->
+                    <div class="card" style="flex: 1; display:flex; flex-direction:column; align-items:center; justify-content:center; background: rgba(10, 14, 23, 0.95); position: relative; border-radius: var(--radius-xl); overflow: hidden; padding: 20px;">
+                        
+                        <div id="phoneScreenContainer" style="width: 340px; height: 620px; background: #000; border: 4px solid #334155; border-radius: 36px; overflow: hidden; position: relative; display:flex; flex-direction:column; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.2);">
+                            <!-- Kamera Çentiği -->
+                            <div style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 70px; height: 16px; background: #1e293b; border-radius: 99px; z-index: 20; display:flex; align-items:center; justify-content:center;">
+                                <div style="width: 8px; height: 8px; background: #0f172a; border-radius: 50%;"></div>
+                            </div>
+                            
+                            <!-- Canlı Ekran Alanı -->
+                            <div id="screenViewWrapper" style="flex: 1; width: 100%; height: 100%; position: relative; cursor: crosshair; user-select: none;">
+                                <img id="screenMirrorImg" src="" alt="Ekran Kapalı" style="width: 100%; height: 100%; object-fit: contain; display: none;">
+                                <div id="screenMirrorPlaceholder" style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-muted); text-align: center; padding: 30px;">
+                                    <span style="font-size: 48px;">📱</span>
+                                    <div style="font-size: 15px; font-weight: 700; color: var(--text-primary);">Ekran Yansıtma Beklemede</div>
+                                    <div style="font-size: 12px; color: var(--text-secondary);">Telefon ekranını bilgisayarınızdan canlı izlemek ve farenizle dokunarak kontrol etmek için yansıtmayı başlatın.</div>
+                                    <button class="btn btn-primary" onclick="toggleScreenMirror(true)" style="margin-top: 10px;">▶️ Yansıtmayı Başlat</button>
+                                </div>
+                            </div>
+
+                            <!-- Sanal Telefon Alt Tuşları -->
+                            <div style="height: 48px; background: rgba(15, 23, 42, 0.95); border-top: 1px solid rgba(255,255,255,0.08); display: flex; justify-content: space-around; align-items: center; z-index: 10;">
+                                <button class="btn btn-secondary" onclick="sendScreenTouchAction('back')" title="Geri" style="padding: 6px 16px; border:none; background:transparent; font-size:16px;">◀</button>
+                                <button class="btn btn-secondary" onclick="sendScreenTouchAction('home')" title="Ana Ekran" style="padding: 6px 16px; border:none; background:transparent; font-size:16px;">⌂</button>
+                                <button class="btn btn-secondary" onclick="sendScreenTouchAction('recents')" title="Son Uygulamalar" style="padding: 6px 16px; border:none; background:transparent; font-size:16px;">▢</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sağ: Kontroller ve Panel -->
+                    <div style="width: 380px; display: flex; flex-direction: column; gap: 16px;">
+                        <div class="card">
+                            <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">🎮 Canlı Kontrol &amp; Akış</h3>
+                            <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                                Ekran üzerindeki herhangi bir noktaya tıklayarak veya sürükleyerek telefonunuza dokunma hareketi gönderebilirsiniz.
+                            </div>
+                            
+                            <div style="display:flex; flex-direction:column; gap:10px;">
+                                <button class="btn btn-primary" id="btnMirrorStart" onclick="toggleScreenMirror(true)">▶️ Canlı Yansıtmayı Başlat</button>
+                                <button class="btn btn-danger" id="btnMirrorStop" onclick="toggleScreenMirror(false)" style="display:none;">⏹️ Yansıtmayı Durdur</button>
+                            </div>
+
+                            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border-card);">
+                                <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px;">AKIM KALİTESİ</div>
+                                <div style="display:flex; gap:8px;">
+                                    <button class="btn btn-secondary" id="btnQual60" onclick="setMirrorQuality(60)" style="flex:1; font-size:12px;">Hızlı (60p)</button>
+                                    <button class="btn btn-primary" id="btnQual75" onclick="setMirrorQuality(75)" style="flex:1; font-size:12px;">Dengeli (75p)</button>
+                                    <button class="btn btn-secondary" id="btnQual90" onclick="setMirrorQuality(90)" style="flex:1; font-size:12px;">HD (90p)</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">⚡ Hızlı Eylemler</h3>
+                            <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                <button class="btn btn-secondary" onclick="sendScreenTouchAction('power')" style="font-size:12px;">🔒 Ekran Kilidi</button>
+                                <button class="btn btn-secondary" onclick="sendScreenTouchAction('notifications')" style="font-size:12px;">⚡ Bildirimler</button>
+                                <button class="btn btn-secondary" onclick="sendPhoneCmd('VOLUME_UP')" style="font-size:12px;">🔊 Ses Yükselt</button>
+                                <button class="btn btn-secondary" onclick="sendPhoneCmd('VOLUME_DOWN')" style="font-size:12px;">🔉 Ses Azalt</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 12: Ağ & Donanım (WebDAV, Hotspot, Sesli Arama) -->
+            <div id="tab-network" class="tab-content">
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 24px;">
+                    
+                    <!-- KART 1: WebDAV Ağ Sürücüsü (Z:\) -->
+                    <div class="card">
+                        <div style="display:flex; align-items:center; gap: 14px; margin-bottom: 16px;">
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); display:flex; align-items:center; justify-content:center; font-size: 24px;">📁</div>
+                            <div>
+                                <h3 style="font-size: 16px; font-weight: 800;">Telefon Ağ Sürücüsü (Z:\)</h3>
+                                <p style="font-size: 12px; color: var(--text-muted);">WebDAV ile Windows Gezgini'ne doğrudan bağlama</p>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.3); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; font-size: 13px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                                <span style="color:var(--text-secondary);">Sürücü Harfi:</span>
+                                <strong style="color:var(--accent-blue);">Z:\ Sürücüsü</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                                <span style="color:var(--text-secondary);">Protokol:</span>
+                                <span>WebDAV (Port 8088)</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-secondary);">Durum:</span>
+                                <span id="storageMountStatusText" style="color:var(--accent-green); font-weight:700;">Hazır</span>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; flex-direction:column; gap: 10px;">
+                            <button class="btn btn-primary" onclick="mountStorageDrive('Z:')">⚡ Z:\ Olarak Windows'a Bağla &amp; Aç</button>
+                            <div style="display:flex; gap: 8px;">
+                                <button class="btn btn-secondary" onclick="openStorageDrive('Z:')">📂 Gezginde Aç</button>
+                                <button class="btn btn-danger" onclick="unmountStorageDrive('Z:')">🔌 Sürücüyü Çıkar</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KART 2: Anlık Kişisel Erişim Noktası (Instant Hotspot) -->
+                    <div class="card">
+                        <div style="display:flex; align-items:center; gap: 14px; margin-bottom: 16px;">
+                            <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(16, 185, 129, 0.15); display:flex; align-items:center; justify-content:center; font-size: 24px;">📡</div>
+                            <div>
+                                <h3 style="font-size: 16px; font-weight: 800;">Anlık Kişisel Erişim Noktası</h3>
+                                <p style="font-size: 12px; color: var(--text-muted);">Tek tıkla Hotspot aç ve PC'yi Wi-Fi ile bağla</p>
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.3); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px; font-size: 13px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                                <span style="color:var(--text-secondary);">Hotspot Durumu:</span>
+                                <span id="hotspotStatusBadge" style="color:var(--text-muted); font-weight:700;">Kapalı ⚪</span>
+                            </div>
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 6px;">
+                                <span style="color:var(--text-secondary);">Wi-Fi SSID:</span>
+                                <strong id="hotspotSSID" style="color:var(--accent-blue);">--</strong>
+                            </div>
+                            <div style="display:flex; justify-content:space-between;">
+                                <span style="color:var(--text-secondary);">Şifre:</span>
+                                <strong id="hotspotPassword" style="font-family:'JetBrains Mono',monospace;">--</strong>
+                            </div>
+                        </div>
+
+                        <div style="display:flex; flex-direction:column; gap: 10px;">
+                            <button class="btn btn-success" onclick="connectInstantHotspot()">🚀 Hotspot Başlat &amp; PC'yi Otomatik Bağla</button>
+                            <button class="btn btn-secondary" onclick="toggleHotspot('STOP')">⏹️ Hotspot'u Kapat</button>
+                        </div>
+                    </div>
+
+                    <!-- KART 3: PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free Call Audio) -->
+                    <div class="card" style="grid-column: 1 / -1;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 16px;">
+                            <div style="display:flex; align-items:center; gap: 14px;">
+                                <div style="width: 48px; height: 48px; border-radius: 12px; background: rgba(99, 102, 241, 0.15); display:flex; align-items:center; justify-content:center; font-size: 24px;">🎙️</div>
+                                <div>
+                                    <h3 style="font-size: 16px; font-weight: 800;">PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free)</h3>
+                                    <p style="font-size: 12px; color: var(--text-muted);">Aramaları bilgisayar mikrofonunuz ve hoparlörünüzle eller serbest yapın</p>
+                                </div>
+                            </div>
+                            <span id="callAudioActiveBadge" style="background:rgba(255,255,255,0.06); padding:4px 12px; border-radius:99px; font-size:12px; font-weight:700;">Beklemede ⚪</span>
+                        </div>
+
+                        <div style="display:flex; gap: 16px; align-items:center; flex-wrap:wrap;">
+                            <button class="btn btn-primary" id="btnToggleHandsFree" onclick="toggleHandsFreeAudio()">🎙️ PC'den Konuş (Hands-Free Başlat)</button>
+                            <button class="btn btn-secondary" id="btnTogglePCMic" onclick="togglePCMic()" style="display:none;">🔇 PC Mikrofonunu Sustur</button>
+                            <div style="font-size: 13px; color: var(--text-secondary); margin-left: auto;">
+                                16kHz HD PCM çift yönlü ses köprüsü
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
             <!-- Lightbox Modal for Full Photo Preview -->
             <div id="photoLightboxModal" style="display: none; position: fixed; inset: 0; background: rgba(5, 8, 16, 0.88); backdrop-filter: blur(12px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;" onclick="if(event.target===this) closePhotoLightbox()">
                 <div style="background: #111827; border: 1px solid var(--border-card); border-radius: var(--radius-lg); max-width: 900px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);">
@@ -2705,7 +3233,7 @@ const dashboardHTML = `<!DOCTYPE html>
             const targetTab = document.getElementById('tab-' + tabId);
             if (targetTab) targetTab.classList.add('active');
 
-            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files', 'contacts', 'tabsharing', 'photos'].indexOf(tabId);
+            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files', 'contacts', 'tabsharing', 'photos', 'screen', 'network'].indexOf(tabId);
             const navItems = document.querySelectorAll('.nav-item');
             if (navIdx >= 0 && navItems[navIdx]) navItems[navIdx].classList.add('active');
 
@@ -2719,7 +3247,9 @@ const dashboardHTML = `<!DOCTYPE html>
                 'files': 'Wi-Fi Dosya Paylaşımı',
                 'contacts': 'Telefon Rehberi & Kişiler',
                 'tabsharing': 'Sekme & Bağlantı Paylaşımı',
-                'photos': 'Fotoğraf Galerisi'
+                'photos': 'Fotoğraf Galerisi',
+                'screen': 'Canlı Telefon Ekranı & Uzaktan Kontrol',
+                'network': 'Ağ Sürücüsü (Z:\\) & Hotspot & Ses Köprüsü'
             };
             document.getElementById('pageTitle').innerText = titles[tabId] || 'Genel Bakış';
 
@@ -2731,6 +3261,8 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadContactsList();
             } else if (tabId === 'photos') {
                 loadPhotosList();
+            } else if (tabId === 'screen') {
+                setupScreenTouch();
             }
         }
 
@@ -3839,6 +4371,253 @@ const dashboardHTML = `<!DOCTYPE html>
             if (!ts) return '';
             const d = new Date(ts);
             return d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+        }
+
+        // Screen Mirroring & Remote Touch Control
+        let isScreenMirroring = false;
+        let mirrorQuality = 75;
+        let mirrorPollInterval = null;
+
+        function toggleScreenMirror(start) {
+            isScreenMirroring = start;
+            const action = start ? 'START' : 'STOP';
+            fetch('/screen/mirror?action=' + action + '&quality=' + mirrorQuality);
+
+            const btnStart = document.getElementById('btnMirrorStart');
+            const btnStop = document.getElementById('btnMirrorStop');
+            const img = document.getElementById('screenMirrorImg');
+            const placeholder = document.getElementById('screenMirrorPlaceholder');
+            const badge = document.getElementById('screenNavBadge');
+
+            if (start) {
+                if (btnStart) btnStart.style.display = 'none';
+                if (btnStop) btnStop.style.display = 'block';
+                if (img) img.style.display = 'block';
+                if (placeholder) placeholder.style.display = 'none';
+                if (badge) badge.style.display = 'inline-block';
+                startMirrorPolling();
+            } else {
+                if (btnStart) btnStart.style.display = 'block';
+                if (btnStop) btnStop.style.display = 'none';
+                if (img) img.style.display = 'none';
+                if (placeholder) placeholder.style.display = 'flex';
+                if (badge) badge.style.display = 'none';
+                stopMirrorPolling();
+            }
+        }
+
+        function setMirrorQuality(q) {
+            mirrorQuality = q;
+            [60, 75, 90].forEach(function(val) {
+                const b = document.getElementById('btnQual' + val);
+                if (b) b.className = (val === q ? 'btn btn-primary' : 'btn btn-secondary');
+            });
+            if (isScreenMirroring) {
+                fetch('/screen/mirror?action=START&quality=' + mirrorQuality);
+            }
+        }
+
+        function startMirrorPolling() {
+            stopMirrorPolling();
+            mirrorPollInterval = setInterval(async function() {
+                if (!isScreenMirroring) return;
+                try {
+                    const img = document.getElementById('screenMirrorImg');
+                    if (img) {
+                        img.src = '/screen/frame?format=jpeg&_t=' + Date.now();
+                    }
+                } catch (e) {}
+            }, 120);
+        }
+
+        function stopMirrorPolling() {
+            if (mirrorPollInterval) {
+                clearInterval(mirrorPollInterval);
+                mirrorPollInterval = null;
+            }
+        }
+
+        function sendScreenTouchAction(act) {
+            fetch('/screen/touch?action=' + encodeURIComponent(act));
+        }
+
+        function setupScreenTouch() {
+            const wrapper = document.getElementById('screenViewWrapper');
+            if (!wrapper || wrapper.dataset.bound) return;
+            wrapper.dataset.bound = 'true';
+
+            let isPointerDown = false;
+
+            function sendPointerEvent(act, e) {
+                const rect = wrapper.getBoundingClientRect();
+                const x = Math.min(1.0, Math.max(0.0, (e.clientX - rect.left) / rect.width));
+                const y = Math.min(1.0, Math.max(0.0, (e.clientY - rect.top) / rect.height));
+                fetch('/screen/touch?action=' + act + '&x=' + x.toFixed(3) + '&y=' + y.toFixed(3));
+            }
+
+            wrapper.addEventListener('mousedown', function(e) {
+                isPointerDown = true;
+                sendPointerEvent('down', e);
+            });
+            window.addEventListener('mousemove', function(e) {
+                if (!isPointerDown) return;
+                sendPointerEvent('move', e);
+            });
+            window.addEventListener('mouseup', function(e) {
+                if (!isPointerDown) return;
+                isPointerDown = false;
+                sendPointerEvent('up', e);
+            });
+        }
+
+        // WebDAV Storage Mount (Z:\)
+        async function mountStorageDrive(drive) {
+            try {
+                const res = await fetch('/storage/mount?drive=' + (drive || 'Z:'));
+                const json = await res.json();
+                if (json.success) {
+                    alert('✅ ' + json.drive + ' Sürücüsü Windows Gezgini\'ne başarıyla bağlandı ve açıldı!');
+                } else {
+                    alert('Bağlama sonucu: ' + (json.output || 'İşlem tamamlandı'));
+                }
+            } catch (e) {
+                alert('Ağ hatası: ' + e.message);
+            }
+        }
+
+        async function unmountStorageDrive(drive) {
+            try {
+                const res = await fetch('/storage/unmount?drive=' + (drive || 'Z:'));
+                const json = await res.json();
+                alert('🔌 ' + (drive || 'Z:') + ' sürücüsü bağlantısı kesildi.');
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        function openStorageDrive(drive) {
+            fetch('/file/open_folder?drive=' + (drive || 'Z:'));
+        }
+
+        // Instant Hotspot
+        async function toggleHotspot(action) {
+            try {
+                const res = await fetch('/hotspot/toggle?action=' + (action || ''));
+                const json = await res.json();
+                alert('📡 Hotspot komutu iletildi: ' + json.action);
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        async function connectInstantHotspot() {
+            try {
+                const res = await fetch('/hotspot/connect');
+                const json = await res.json();
+                if (json.success) {
+                    alert('🚀 Hotspot başlatıldı! PC Wi-Fi ' + json.ssid + ' ağına otomatik bağlanıyor...');
+                } else {
+                    alert(json.message || 'Lütfen birkaç saniye sonra tekrar deneyin.');
+                }
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        // Hands-Free Call Audio
+        let isHandsFreeActive = false;
+        let pcAudioContext = null;
+        let pcMediaStream = null;
+        let isPCMicMuted = false;
+
+        async function toggleHandsFreeAudio() {
+            isHandsFreeActive = !isHandsFreeActive;
+            const btn = document.getElementById('btnToggleHandsFree');
+            const micBtn = document.getElementById('btnTogglePCMic');
+            const badge = document.getElementById('callAudioActiveBadge');
+
+            if (isHandsFreeActive) {
+                try {
+                    await fetch('/call/audio?action=START');
+                    if (btn) btn.innerText = '⏹️ Hands-Free Modunu Durdur';
+                    if (micBtn) micBtn.style.display = 'inline-block';
+                    if (badge) {
+                        badge.innerText = 'Aktif 🎙️';
+                        badge.style.background = 'rgba(16,185,129,0.2)';
+                        badge.style.color = '#10B981';
+                    }
+                    startPCAudioCapture();
+                } catch (e) {
+                    alert('Ses köprüsü başlatılamadı: ' + e.message);
+                }
+            } else {
+                await fetch('/call/audio?action=STOP');
+                if (btn) btn.innerText = '🎙️ PC\'den Konuş (Hands-Free Başlat)';
+                if (micBtn) micBtn.style.display = 'none';
+                if (badge) {
+                    badge.innerText = 'Beklemede ⚪';
+                    badge.style.background = 'rgba(255,255,255,0.06)';
+                    badge.style.color = 'inherit';
+                }
+                stopPCAudioCapture();
+            }
+        }
+
+        function togglePCMic() {
+            isPCMicMuted = !isPCMicMuted;
+            const micBtn = document.getElementById('btnTogglePCMic');
+            if (pcMediaStream) {
+                pcMediaStream.getAudioTracks().forEach(function(t) { t.enabled = !isPCMicMuted; });
+            }
+            if (micBtn) {
+                micBtn.innerText = isPCMicMuted ? '🎙️ PC Mikrofonunu Aç' : '🔇 PC Mikrofonunu Sustur';
+            }
+        }
+
+        async function startPCAudioCapture() {
+            try {
+                pcAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                pcMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = pcAudioContext.createMediaStreamSource(pcMediaStream);
+                const processor = pcAudioContext.createScriptProcessor(2048, 1, 1);
+
+                processor.onaudioprocess = function(e) {
+                    if (!isHandsFreeActive || isPCMicMuted) return;
+                    const inputData = e.inputBuffer.getChannelData(0);
+                    const pcm16 = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        const s = Math.max(-1, Math.min(1, inputData[i]));
+                        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    const uint8 = new Uint8Array(pcm16.buffer);
+                    let binary = '';
+                    for (let i = 0; i < uint8.byteLength; i++) {
+                        binary += String.fromCharCode(uint8[i]);
+                    }
+                    const b64 = btoa(binary);
+                    fetch('/call/audio?action=DATA', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: 'data=' + encodeURIComponent(b64)
+                    }).catch(function() {});
+                };
+
+                source.connect(processor);
+                processor.connect(pcAudioContext.destination);
+            } catch (err) {
+                console.log('Mikrofon erişimi:', err);
+            }
+        }
+
+        function stopPCAudioCapture() {
+            if (pcMediaStream) {
+                pcMediaStream.getTracks().forEach(function(t) { t.stop(); });
+                pcMediaStream = null;
+            }
+            if (pcAudioContext) {
+                try { pcAudioContext.close(); } catch (_) {}
+                pcAudioContext = null;
+            }
         }
 
         setInterval(updateStatus, 1500);

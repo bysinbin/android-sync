@@ -48,6 +48,10 @@ class SyncForegroundService : Service() {
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
     lateinit var photosManager: PhotosManager
+    lateinit var screenMirrorManager: ScreenMirrorManager
+    lateinit var webDavServer: WebDavServer
+    lateinit var hotspotManager: HotspotManager
+    lateinit var callAudioBridgeManager: CallAudioBridgeManager
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
@@ -74,6 +78,28 @@ class SyncForegroundService : Service() {
         super.onCreate()
         instance = this
         photosManager = PhotosManager(this)
+        screenMirrorManager = ScreenMirrorManager(this)
+        webDavServer = WebDavServer(this)
+        hotspotManager = HotspotManager(this)
+        callAudioBridgeManager = CallAudioBridgeManager(this)
+
+        screenMirrorManager.onFrameEncoded = { b64, w, h ->
+            webSocketClient?.sendScreenMirrorFrame(ScreenMirrorFramePayload(width = w, height = h, data = b64))
+        }
+
+        hotspotManager.onStatusChanged = { status ->
+            webSocketClient?.sendHotspotStatus(status)
+        }
+
+        callAudioBridgeManager.onAudioDataCaptured = { b64 ->
+            webSocketClient?.sendCallAudioBridge(CallAudioBridgePayload(
+                action = "DATA",
+                direction = "PHONE_TO_PC",
+                data = b64,
+                sample_rate = 16000
+            ))
+        }
+
         createNotificationChannel()
 
         // Acquire WakeLock and WifiLock so network never sleeps during calls or screen-off
@@ -314,6 +340,71 @@ class SyncForegroundService : Service() {
                     photosManager.uploadPhotoToHost(photoId, targetUrl)
                 }.start()
             }
+            onScreenMirrorRequested = { payload, hostKey ->
+                if (payload.action == "START") {
+                    screenMirrorManager.startMirroring(payload.quality)
+                } else {
+                    screenMirrorManager.stopMirroring()
+                }
+            }
+            onScreenTouchReceived = { payload, _ ->
+                screenMirrorManager.injectTouch(payload.action, payload.x, payload.y)
+            }
+            onStorageMountRequested = { payload, hostKey ->
+                if (payload.action == "START") {
+                    val ok = webDavServer.start()
+                    val localIp = getLocalIpAddress()
+                    webSocketClient?.sendStorageMountStatus(
+                        StorageMountStatusPayload(
+                            enabled = ok,
+                            port = webDavServer.port,
+                            url = "http://$localIp:${webDavServer.port}/",
+                            path = "/storage/emulated/0"
+                        ),
+                        targetHostKey = hostKey
+                    )
+                } else if (payload.action == "STOP") {
+                    webDavServer.stop()
+                    webSocketClient?.sendStorageMountStatus(
+                        StorageMountStatusPayload(
+                            enabled = false,
+                            port = webDavServer.port,
+                            url = "",
+                            path = "/storage/emulated/0"
+                        ),
+                        targetHostKey = hostKey
+                    )
+                } else {
+                    val localIp = getLocalIpAddress()
+                    webSocketClient?.sendStorageMountStatus(
+                        StorageMountStatusPayload(
+                            enabled = webDavServer.isServerRunning(),
+                            port = webDavServer.port,
+                            url = if (webDavServer.isServerRunning()) "http://$localIp:${webDavServer.port}/" else "",
+                            path = "/storage/emulated/0"
+                        ),
+                        targetHostKey = hostKey
+                    )
+                }
+            }
+            onHotspotCommandReceived = { payload, hostKey ->
+                if (payload.action == "START") {
+                    hotspotManager.startHotspot()
+                } else if (payload.action == "STOP") {
+                    hotspotManager.stopHotspot()
+                } else {
+                    webSocketClient?.sendHotspotStatus(hotspotManager.getStatus(), targetHostKey = hostKey)
+                }
+            }
+            onCallAudioBridgeReceived = { payload, hostKey ->
+                if (payload.action == "START") {
+                    callAudioBridgeManager.startBridge()
+                } else if (payload.action == "STOP") {
+                    callAudioBridgeManager.stopBridge()
+                } else if (payload.action == "DATA" && payload.direction == "PC_TO_PHONE" && payload.data != null) {
+                    callAudioBridgeManager.handleIncomingPCAudio(payload.data)
+                }
+            }
         }
 
         // Ağdaki tüm cihazları (Windows PC, Mac vb.) dinle ve hepsine bağlan
@@ -516,9 +607,28 @@ class SyncForegroundService : Service() {
         }
     }
 
+    fun getLocalIpAddress(): String {
+        try {
+            val interfaces = java.util.Collections.list(java.net.NetworkInterface.getNetworkInterfaces())
+            for (intf in interfaces) {
+                val addrs = java.util.Collections.list(intf.inetAddresses)
+                for (addr in addrs) {
+                    if (!addr.isLoopbackAddress && addr is java.net.Inet4Address) {
+                        return addr.hostAddress ?: ""
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+        return "127.0.0.1"
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         instance = null
+        screenMirrorManager.stopMirroring()
+        webDavServer.stop()
+        hotspotManager.stopHotspot()
+        callAudioBridgeManager.stopBridge()
         SmsSyncManager.stopSmsObserver(this)
         mediaReporterHandler.removeCallbacks(mediaReporterRunnable)
         discoveryClient?.stop()
