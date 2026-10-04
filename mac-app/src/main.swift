@@ -388,6 +388,46 @@ class LocalCommandServer {
                                 DispatchQueue.main.async {
                                     AppDelegate.shared?.showSmsNotification(sender: sender, body: body)
                                 }
+                            } else if firstLine.contains("/mouse") {
+                                if let actRange = firstLine.range(of: "action=") {
+                                    let q = String(firstLine[actRange.upperBound...])
+                                    let act = q.components(separatedBy: " ").first?.components(separatedBy: "&").first ?? "move"
+                                    DispatchQueue.main.async {
+                                        if act == "move" {
+                                            var dx: Double = 0
+                                            var dy: Double = 0
+                                            if let dxR = firstLine.range(of: "dx=") {
+                                                let s = String(firstLine[dxR.upperBound...]).components(separatedBy: " ").first?.components(separatedBy: "&").first ?? "0"
+                                                dx = Double(s) ?? 0
+                                            }
+                                            if let dyR = firstLine.range(of: "dy=") {
+                                                let s = String(firstLine[dyR.upperBound...]).components(separatedBy: " ").first?.components(separatedBy: "&").first ?? "0"
+                                                dy = Double(s) ?? 0
+                                            }
+                                            let cur = NSEvent.mouseLocation
+                                            let screenHeight = NSScreen.main?.frame.height ?? 1080
+                                            let targetPoint = CGPoint(x: cur.x + CGFloat(dx), y: screenHeight - cur.y + CGFloat(dy))
+                                            CGWarpMousePosition(targetPoint)
+                                        } else if act == "click" {
+                                            let cur = NSEvent.mouseLocation
+                                            let screenHeight = NSScreen.main?.frame.height ?? 1080
+                                            let pt = CGPoint(x: cur.x, y: screenHeight - cur.y)
+                                            let isRight = firstLine.contains("button=right")
+                                            let downEv = CGEvent(mouseEventSource: nil, mouseType: isRight ? .rightMouseDown : .leftMouseDown, mouseCursorPosition: pt, mouseButton: isRight ? .right : .left)
+                                            let upEv = CGEvent(mouseEventSource: nil, mouseType: isRight ? .rightMouseUp : .leftMouseUp, mouseCursorPosition: pt, mouseButton: isRight ? .right : .left)
+                                            downEv?.post(tap: .cghidEventTap)
+                                            upEv?.post(tap: .cghidEventTap)
+                                        } else if act == "scroll" {
+                                            var scrollY: Int32 = 0
+                                            if let sR = firstLine.range(of: "dy=") {
+                                                let s = String(firstLine[sR.upperBound...]).components(separatedBy: " ").first?.components(separatedBy: "&").first ?? "0"
+                                                scrollY = Int32(s) ?? 0
+                                            }
+                                            let scrollEv = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: scrollY, wheel2: 0, wheel3: 0)
+                                            scrollEv?.post(tap: .cghidEventTap)
+                                        }
+                                    }
+                                }
                             } else if let actionRange = firstLine.range(of: "action=") {
                                 let queryPart = String(firstLine[actionRange.upperBound...])
                                 let rawAction = queryPart.components(separatedBy: " ").first?.components(separatedBy: "&").first ?? ""

@@ -699,6 +699,19 @@
                             android:textSize="12sp"
                             android:textStyle="bold" />
                     </LinearLayout>
+
+                    <!-- Air Mouse & Laser Pointer Button -->
+                    <Button
+                        android:id="@+id/btnRemoteLaserPointer"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="🔴 Hava Faresi &amp; Lazer İşaretçi (Basılı Tutun)"
+                        android:textColor="@color/accent_red"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
 
                 <!-- Biometric Unlock Card -->

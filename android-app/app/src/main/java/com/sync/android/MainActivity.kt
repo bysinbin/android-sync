@@ -33,6 +33,10 @@ import com.sync.android.network.ConnectedHost
 import com.sync.android.security.PairedDeviceManager
 import com.sync.android.security.PairedHostConfig
 import com.sync.android.service.SyncForegroundService
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 
 import android.widget.SeekBar
 import android.net.Uri
@@ -118,10 +122,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRemoteEsc: Button
     private lateinit var btnRemoteSpace: Button
     private lateinit var btnRemoteEnter: Button
+    private lateinit var btnRemoteLaserPointer: Button
     private lateinit var btnBiometricUnlock: Button
     private lateinit var etUnlockPin: EditText
     private lateinit var btnSaveUnlockPin: Button
     private var touchpadSensitivity: Float = 1.5f
+
+    // Gyroscope Air Mouse & Laser Pointer
+    private var sensorManager: SensorManager? = null
+    private var gyroSensor: Sensor? = null
+    private var isAirMouseActive = false
+    private val gyroSensitivity: Float = 16.0f
+    private var gyroListener: SensorEventListener? = null
 
     // File Sharing & URL Views
     private lateinit var btnSelectAndSendFile: Button
@@ -401,6 +413,22 @@ class MainActivity : AppCompatActivity() {
         mainHandler.removeCallbacks(uiRefresher)
         mainHandler.removeCallbacks(mediaTicker)
         activePairingDialog?.dismiss()
+        if (isAirMouseActive && gyroListener != null) {
+            sensorManager?.unregisterListener(gyroListener)
+            isAirMouseActive = false
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        if (isAirMouseActive && gyroListener != null) {
+            sensorManager?.unregisterListener(gyroListener)
+            isAirMouseActive = false
+            if (::btnRemoteLaserPointer.isInitialized) {
+                btnRemoteLaserPointer.text = "🔴 Hava Faresi & Lazer İşaretçi (Basılı Tutun)"
+                btnRemoteLaserPointer.setTextColor(ContextCompat.getColor(this, R.color.accent_red))
+            }
+        }
     }
 
     override fun onResume() {
@@ -454,6 +482,7 @@ class MainActivity : AppCompatActivity() {
         btnRemoteEsc = findViewById(R.id.btnRemoteEsc)
         btnRemoteSpace = findViewById(R.id.btnRemoteSpace)
         btnRemoteEnter = findViewById(R.id.btnRemoteEnter)
+        btnRemoteLaserPointer = findViewById(R.id.btnRemoteLaserPointer)
         btnBiometricUnlock = findViewById(R.id.btnBiometricUnlock)
         etUnlockPin = findViewById(R.id.etUnlockPin)
         btnSaveUnlockPin = findViewById(R.id.btnSaveUnlockPin)
@@ -887,6 +916,56 @@ class MainActivity : AppCompatActivity() {
         btnRemoteEnter.setOnClickListener {
             it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             sendTouchpadKey("ENTER")
+        }
+
+        // --- Hardware Gyroscope Air Mouse & Laser Pointer ---
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        gyroSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+
+        gyroListener = object : SensorEventListener {
+            override fun onSensorChanged(event: SensorEvent?) {
+                if (!isAirMouseActive || event == null) return
+                // event.values[0] = pitch (up/down rotation) -> dy
+                // event.values[2] = yaw (left/right turn) -> dx
+                val pitch = event.values[0]
+                val yaw = event.values[2]
+
+                // Low-pass / deadband threshold to prevent jitter when holding still
+                if (Math.abs(pitch) > 0.035f || Math.abs(yaw) > 0.035f) {
+                    val dx = -yaw * gyroSensitivity * touchpadSensitivity
+                    val dy = -pitch * gyroSensitivity * touchpadSensitivity
+                    sendTouchpadMove(dx, dy)
+                }
+            }
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+        }
+
+        btnRemoteLaserPointer.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                    if (gyroSensor != null) {
+                        isAirMouseActive = true
+                        sensorManager?.registerListener(gyroListener, gyroSensor, SensorManager.SENSOR_DELAY_GAME)
+                        btnRemoteLaserPointer.text = "🎯 Lazer / Hava Faresi Aktif (Havada Hareket Ettirin)"
+                        btnRemoteLaserPointer.setTextColor(ContextCompat.getColor(this, R.color.accent_green))
+                    } else {
+                        Toast.makeText(this, "Bu cihazda jiroskop donanımı bulunamadı!", Toast.LENGTH_SHORT).show()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isAirMouseActive) {
+                        isAirMouseActive = false
+                        sensorManager?.unregisterListener(gyroListener)
+                        btnRemoteLaserPointer.text = "🔴 Hava Faresi & Lazer İşaretçi (Basılı Tutun)"
+                        btnRemoteLaserPointer.setTextColor(ContextCompat.getColor(this, R.color.accent_red))
+                        v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    }
+                    true
+                }
+                else -> false
+            }
         }
 
         // Biometric Unlock & PIN Setup (Per-Host Configured)

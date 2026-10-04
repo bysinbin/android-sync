@@ -3,6 +3,7 @@ package macos
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os/exec"
 	"strings"
 	"time"
@@ -11,16 +12,44 @@ import (
 )
 
 
-// HandleTouchpadEvent processes touchpad gestures and presentation hotkeys on macOS.
+var (
+	macCursorClient = &http.Client{Timeout: 80 * time.Millisecond}
+)
+
+// HandleTouchpadEvent processes touchpad gestures, air mouse movement, and presentation hotkeys on macOS.
 func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
 	switch strings.ToLower(p.Type) {
+	case "move":
+		go func(x, y float64) {
+			u := fmt.Sprintf("http://127.0.0.1:42426/mouse?action=move&dx=%.2f&dy=%.2f", x, y)
+			if _, err := macCursorClient.Get(u); err != nil {
+				_ = exec.Command("cliclick", fmt.Sprintf("m:%+d,%+d", int(x), int(y))).Start()
+			}
+		}(float64(p.DX), float64(p.DY))
+
 	case "click":
-		switch strings.ToLower(p.Button) {
-		case "left", "":
-			_ = exec.Command("osascript", "-e", `tell application "System Events" to click`).Run()
-		case "right":
-			_ = exec.Command("osascript", "-e", `tell application "System Events" to key code 0 using control down`).Run()
+		btn := strings.ToLower(p.Button)
+		if btn == "" {
+			btn = "left"
 		}
+		go func(b string) {
+			u := fmt.Sprintf("http://127.0.0.1:42426/mouse?action=click&button=%s", b)
+			if _, err := macCursorClient.Get(u); err != nil {
+				if b == "right" {
+					_ = exec.Command("osascript", "-e", `tell application "System Events" to key code 0 using control down`).Run()
+				} else {
+					_ = exec.Command("osascript", "-e", `tell application "System Events" to click`).Run()
+				}
+			}
+		}(btn)
+
+	case "scroll":
+		sy := p.ScrollY
+		go func(s int) {
+			u := fmt.Sprintf("http://127.0.0.1:42426/mouse?action=scroll&dy=%d", s)
+			_, _ = macCursorClient.Get(u)
+		}(sy)
+
 	case "key":
 		k := strings.ToUpper(strings.TrimSpace(p.Key))
 		var keyCode int
