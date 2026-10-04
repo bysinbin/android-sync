@@ -24,7 +24,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | PC Üzerinden Sesli Telefon Görüşmesi (HFP Audio) | ❌ Eksik | ✅ Var | ❌ Yok |
 | | Arama Başlatma (DIAL) / Reddetme / Sessize Alma | ✅ Var | ✅ Var | ⚠️ Kısmi |
 | | SMS Geçmişi Görüntüleme & PC'den SMS Gönderme | ✅ Var | ✅ Var | ✅ Var |
-| | Telefon Rehberi (Contacts) Entegrasyonu | ❌ Eksik | ✅ Var | ❌ Yok |
+| | Telefon Rehberi (Contacts) Entegrasyonu | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Dosya & Depolama** | Hızlı Kablosuz Dosya Transferi (Share to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ⚠️ Sadece Samsung/Honor | ✅ Tam |
 | | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (SFTP) | ❌ Eksik | ❌ Yok | ✅ Var |
 | | Fotoğraf Galerisi Gezgini (Photos Drag-Drop) | ❌ Eksik | ✅ Var | ❌ Yok |
@@ -39,7 +39,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Ortak Pano (Görsel ve Zengin İçerik) | ❌ Eksik | ✅ Var | ✅ Var |
 | | Telefonu Bul (Uzaktan Çaldır & Sustur) | ✅ Var | ❌ Yok | ✅ Var |
 | | Anlık Kişisel Erişim Noktası (Instant Hotspot) | ❌ Eksik | ✅ Var | ❌ Yok |
-| | Sekme / URL Paylaşımı (Send Tab to Device) | ❌ Eksik | ❌ Yok | ✅ Var |
+| | Sekme / URL Paylaşımı (Send Tab to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ❌ Yok | ✅ Var |
 
 ---
 
@@ -100,12 +100,14 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 ### 6. Sistem & Ağ Entegrasyonları
 1. **Görsel Panosu (Image Clipboard):**
    - PC'de `Win + Shift + S` ile alınan ekran görüntüsü veya kopyalanan resim doğrudan telefon panosuna `Bitmap/PNG` olarak aktarılır.
-2. **Sekme / Web Sayfası Paylaşımı (Send Tab to Device):**
-   - Telefondan veya PC tarayıcısından tek tıkla açık olan URL'nin diğer cihazın varsayılan tarayıcısında açılması.
-3. **Anlık Kişisel Erişim Noktası (Instant Hotspot):**
+1. **Görsel Panosu (Image Clipboard):**
+   - PC'de `Win + Shift + S` ile alınan ekran görüntüsü veya kopyalanan resim doğrudan telefon panosuna `Bitmap/PNG` olarak aktarılır.
+2. **Sekme / Web Sayfası Paylaşımı (Send Tab to Device):** *(✅ Tamamlandı)*
+   - Telefondan veya PC/Mac tarayıcısından tek tıkla açık olan URL diğer cihazın varsayılan tarayıcısında anında açılır. Android paylaşım menüsü ve PC/Mac web panelleri entegredir.
+3. **Telefon Rehberi (Contacts) Entegrasyonu:** *(✅ Tamamlandı)*
+   - Telefon rehberindeki kişiler PC ve Mac paneline taranarak alfabetik listelenir, anlık isim/numara araması, tek tıkla doğrudan arama (`DIAL`) ve hızlı SMS başlatma sunulur.
+4. **Anlık Kişisel Erişim Noktası (Instant Hotspot):**
    - Telefonda hotspot açma ayarlarıyla uğraşmadan, PC üzerinden tek tıkla hücresel internet paylaşımını tetikleme ve bağlanma.
-4. **Telefon Rehberi (Contacts) Entegrasyonu:**
-   - Telefon rehberindeki kişilerin PC paneline senkronize edilerek ada göre aranabilmesi.
 
 ---
 
@@ -113,14 +115,14 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 1. **Çoklu Cihaz ve Mesh Mimarisi (Windows + Mac + Android Birlikte):**
    - **Phone Link:** Sadece 1 Windows PC ve 1 Android telefon arasında çalışır; macOS desteği hiç yoktur.
-   - **Android-Sync:** Aynı anda 1 Android telefon, 1 Windows masaüstü ve 1 MacBook'u tek bir ağda birbirine bağlar; pano ve bildirimler tüm cihazlar arasında çapraz dağıtılır.
+   - **Android-Sync:** Aynı anda 1 Android telefon, 1 Windows masaüstü ve 1 MacBook'u tek bir ağda birbirine bağlar; pano, rehber, sekmeler ve bildirimler tüm cihazlar arasında çapraz senkronize edilir.
 2. **Çift Yönlü Bildirim Akışı (PC/Mac -> Telefon):**
    - Phone Link ve KDE Connect yalnızca telefondaki bildirimi PC'ye taşır.
    - Projemiz, **Windows ve macOS'ta oluşan bildirimleri de yakalayarak gerçek zamanlı olarak telefona aktarır**.
 3. **Bağımsız Çift Medya Takip Motoru:**
    - Aynı anda hem bilgisayarda çalan medyayı (Spotify, YouTube vb.) hem de telefonda çalan müziği ayrı kartlarda takip edip, her ikisini de ±15 saniye atlatma ve yüzde bazlı Seek Bar ile yönetebilme yeteneği rakiplerinde bulunmaz.
 4. **Hafif ve Bağımsız Mimari (Go + Vanilla Web + Kotlin):**
-   - Microsoft Store / UWP bağımlılığı veya ağır arka plan servisleri gerektirmez; tek bir hafif ikili dosya (`windows-sync.exe`) ile taşınabilir (portable) olarak çalışır.
+   - Microsoft Store / UWP bağımlılığı veya ağır arka plan servisleri gerektirmez; tek bir hafif ikili dosya (`windows-sync.exe` / `mac-sync`) ile taşınabilir (portable) olarak çalışır.
 
 ---
 
@@ -128,19 +130,18 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 ```mermaid
 graph TD
-    A[Mevcut Durum: Kararlı Mesh, Bildirim, Medya, SMS, Pano] --> B[Aşama 1: Dosya Transferi & Pano Görselleri]
-    B --> C[Aşama 2: Bildirimden Yanıtlama & Aksiyonlar]
-    C --> D[Aşama 3: Dokunmatik Fare & PC Komutları]
-    D --> E[Aşama 4: Canlı Ekran Yansıtma / Scrcpy]
+    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama, PC Komutları, Rehber & Sekme Paylaşımı] --> B[Aşama 1: Görsel Panosu & Bildirim Aksiyon Butonları]
+    B --> C[Aşama 2: Sanal Touchpad & Fare Kumandası]
+    C --> D[Aşama 3: Telefon Ekranını Yansıtma / Scrcpy]
 ```
 
-### Önerilen Geliştirme Fazları:
+### Önerilen Sonraki Geliştirme Fazları:
 - **Faz 1 (Yüksek Öncelik / Hızlı Kazanım):**
-  - **HTTP/WebSocket Dosya Transferi:** PC web paneline dosya sürükleyip bırakarak telefona gönderme; telefonda "Paylaş -> Android Sync" menüsü ile PC'ye dosya aktarma.
-  - **Görsel Panosu (Image Clipboard):** Pano senkronizasyonuna Base64 PNG aktarımının eklenmesi.
+  - **Görsel Panosu (Image Clipboard):** Pano senkronizasyonuna Base64 PNG aktarımının eklenmesi (Windows clipboard image API + Android clipboard manager bitmap formatı).
+  - **Bildirim Aksiyon Butonları (Notification Actions):** Telefonda bildirimle gelen butonların PC ve Mac arayüzünde gösterilerek tıklanabilmesi.
 - **Faz 2 (Orta Öncelik / Yüksek Kullanılabilirlik):**
-  - **Bildirimden Yanıtlama (Inline Reply):** Android `RemoteInput` API'si üzerinden PC web panelinden gelen metinle WhatsApp/Telegram bildirimlerini yanıtlama.
-  - **Uzaktan Komut Çalıştırma (Run Commands):** PC kapatma, kilitleme ve uyku modunu telefondan tetikleme.
+  - **Sanal Touchpad / Fare Kumandası:** Telefon ekranını bir dizüstü bilgisayar touchpad'i gibi kullanarak PC/Mac faresini hareket ettirme ve tıklama yapma.
+  - **Fotoğraf Galerisi Gezgini (Photos Gallery):** Telefondaki son çekilen fotoğrafların PC/Mac panosundan küçük resimler (thumbnail) halinde önizlenmesi ve sürüklenip bırakılması.
 - **Faz 3 (İleri Düzey Entegrasyonlar):**
-  - **Sanal Touchpad / Fare:** Telefon ekranını fare yüzeyine dönüştürme (Windows `SendInput` API).
-  - **WebRTC / Scrcpy Ekran Yansıtma:** Telefon ekranını PC tarayıcısında gerçek zamanlı izleme ve kontrol etme.
+  - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme.
+

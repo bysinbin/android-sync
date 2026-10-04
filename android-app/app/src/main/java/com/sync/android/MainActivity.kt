@@ -36,6 +36,7 @@ import com.sync.android.model.MediaInfoPayload
 import com.sync.android.service.PhoneController
 import com.sync.android.service.SmsSyncManager
 import com.sync.android.service.FileManager
+import com.sync.android.service.ContactsManager
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,10 +58,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panelFiles: LinearLayout
     private lateinit var panelSettings: LinearLayout
 
-    // File Sharing Views
+    // File Sharing & URL Views
     private lateinit var btnSelectAndSendFile: Button
     private lateinit var tvFileTransferStatus: TextView
     private lateinit var btnOpenDownloadsFolder: Button
+    private lateinit var etWebUrlInput: EditText
+    private lateinit var btnSendUrlToPC: Button
+    private lateinit var btnPasteAndSendUrl: Button
+
+    // Contacts Views
+    private lateinit var btnTriggerContactsSync: Button
+    private lateinit var tvContactsPermissionStatus: TextView
+    private lateinit var btnGrantContacts: Button
 
     private val filePickerLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
@@ -212,6 +221,18 @@ class MainActivity : AppCompatActivity() {
         val type = intent.type
 
         if (Intent.ACTION_SEND == action && type != null) {
+            val extraText = intent.getStringExtra(Intent.EXTRA_TEXT)
+            if (!extraText.isNullOrBlank()) {
+                val urlRegex = "(https?://[^\\s]+)".toRegex()
+                val match = urlRegex.find(extraText)
+                val url = match?.value ?: extraText.trim()
+                if (url.startsWith("http://") || url.startsWith("https://")) {
+                    switchTab(3)
+                    sendUrlToConnectedHosts(url)
+                    return
+                }
+            }
+
             val streamUri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
             } else {
@@ -234,6 +255,22 @@ class MainActivity : AppCompatActivity() {
                 sendFilesToConnectedHosts(streamUris)
             }
         }
+    }
+
+    private fun sendUrlToConnectedHosts(rawUrl: String) {
+        var url = rawUrl.trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://$url"
+        }
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val hosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+        if (hosts.isEmpty()) {
+            Toast.makeText(this, "⚠️ Bağlantı göndermek için bağlı ve eşleşmiş bir bilgisayar bulunamadı!", Toast.LENGTH_LONG).show()
+            return
+        }
+        wsClient?.sendOpenUrl(url)
+        val names = hosts.map { it.name }.joinToString(", ")
+        Toast.makeText(this, "🌐 Bağlantı bilgisayarda açılıyor: $names", Toast.LENGTH_SHORT).show()
     }
 
     private fun sendFilesToConnectedHosts(uris: List<Uri>) {
@@ -301,6 +338,9 @@ class MainActivity : AppCompatActivity() {
         btnSelectAndSendFile = findViewById(R.id.btnSelectAndSendFile)
         tvFileTransferStatus = findViewById(R.id.tvFileTransferStatus)
         btnOpenDownloadsFolder = findViewById(R.id.btnOpenDownloadsFolder)
+        etWebUrlInput = findViewById(R.id.etWebUrlInput)
+        btnSendUrlToPC = findViewById(R.id.btnSendUrlToPC)
+        btnPasteAndSendUrl = findViewById(R.id.btnPasteAndSendUrl)
 
         // Computers panel
         llComputersContainer = findViewById(R.id.llComputersContainer)
@@ -350,6 +390,7 @@ class MainActivity : AppCompatActivity() {
         etCustomClipInput = findViewById(R.id.etCustomClipInput)
         btnSendTestClipboard = findViewById(R.id.btnSendTestClipboard)
         btnTriggerSmsSync = findViewById(R.id.btnTriggerSmsSync)
+        btnTriggerContactsSync = findViewById(R.id.btnTriggerContactsSync)
 
         // Settings panel
         tvNotifPermissionStatus = findViewById(R.id.tvNotifPermissionStatus)
@@ -358,6 +399,8 @@ class MainActivity : AppCompatActivity() {
         btnGrantPhone = findViewById(R.id.btnGrantPhone)
         tvSmsPermissionStatus = findViewById(R.id.tvSmsPermissionStatus)
         btnGrantSms = findViewById(R.id.btnGrantSms)
+        tvContactsPermissionStatus = findViewById(R.id.tvContactsPermissionStatus)
+        btnGrantContacts = findViewById(R.id.btnGrantContacts)
 
         val deviceManager = PairedDeviceManager.getInstance(this)
         swMeshClipboard.isChecked = deviceManager.meshClipboardEnabled
@@ -562,6 +605,53 @@ class MainActivity : AppCompatActivity() {
             val msgs = SmsSyncManager.fetchRecentMessages(this, 100)
             SyncForegroundService.instance?.webSocketClient?.sendSmsSyncResponse(msgs)
             Toast.makeText(this, "✅ ${msgs.size} SMS mesajı senkronize edildi", Toast.LENGTH_SHORT).show()
+        }
+
+        btnTriggerContactsSync.setOnClickListener {
+            Toast.makeText(this, "Rehber bilgisayarla eşitleniyor...", Toast.LENGTH_SHORT).show()
+            val contacts = ContactsManager.fetchContacts(this)
+            SyncForegroundService.instance?.webSocketClient?.sendContactsResponse(contacts)
+            Toast.makeText(this, "✅ ${contacts.size} kişi senkronize edildi", Toast.LENGTH_SHORT).show()
+        }
+
+        btnSendUrlToPC.setOnClickListener {
+            val url = etWebUrlInput.text.toString().trim()
+            if (url.isEmpty()) {
+                Toast.makeText(this, "Lütfen bir web adresi girin!", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            sendUrlToConnectedHosts(url)
+            etWebUrlInput.setText("")
+        }
+
+        btnPasteAndSendUrl.setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = cm?.primaryClip
+            if (clip != null && clip.itemCount > 0) {
+                val clipText = clip.getItemAt(0).text?.toString()?.trim() ?: ""
+                if (clipText.isNotEmpty()) {
+                    etWebUrlInput.setText(clipText)
+                    sendUrlToConnectedHosts(clipText)
+                    return@setOnClickListener
+                }
+            }
+            Toast.makeText(this, "Panoda kopyalanmış bir bağlantı bulunamadı!", Toast.LENGTH_SHORT).show()
+        }
+
+        btnGrantNotification.setOnClickListener {
+            startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
+        }
+
+        btnGrantPhone.setOnClickListener {
+            requestPhonePermissions()
+        }
+
+        btnGrantSms.setOnClickListener {
+            requestSmsPermissions()
+        }
+
+        btnGrantContacts.setOnClickListener {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 104)
         }
     }
 
@@ -892,6 +982,18 @@ class MainActivity : AppCompatActivity() {
             tvSmsPermissionStatus.text = "İzin Gerekli 🔴"
             tvSmsPermissionStatus.setTextColor(Color.parseColor("#F85149"))
             btnGrantSms.visibility = View.VISIBLE
+        }
+
+        // Contacts
+        val contactsGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
+        if (contactsGranted) {
+            tvContactsPermissionStatus.text = "İzin Verildi 🟢"
+            tvContactsPermissionStatus.setTextColor(Color.parseColor("#3FB950"))
+            btnGrantContacts.visibility = View.GONE
+        } else {
+            tvContactsPermissionStatus.text = "İzin Gerekli 🔴"
+            tvContactsPermissionStatus.setTextColor(Color.parseColor("#F85149"))
+            btnGrantContacts.visibility = View.VISIBLE
         }
     }
 

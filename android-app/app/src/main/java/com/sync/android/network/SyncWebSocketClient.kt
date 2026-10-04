@@ -56,6 +56,8 @@ class SyncWebSocketClient(
     var onPCNotificationReceived: ((notif: NotificationPayload, hostKey: String, hostName: String) -> Unit)? = null
     var onFileAvailableReceived: ((payload: FileAvailablePayload, hostKey: String) -> Unit)? = null
     var onNotificationReplyReceived: ((payload: NotificationReplyPayload, hostKey: String) -> Unit)? = null
+    var onOpenUrlReceived: ((url: String, hostKey: String) -> Unit)? = null
+    var onContactsRequestReceived: ((hostKey: String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -317,6 +319,28 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.OPEN_URL -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val openUrlPayload = Gson().fromJson(msg.payload, OpenUrlPayload::class.java)
+                            Log.d(TAG, "[$hostName] URL açma isteği alındı: ${openUrlPayload.url}")
+                            onOpenUrlReceived?.invoke(openUrlPayload.url, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "OPEN_URL parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.CONTACTS_REQUEST -> {
+                    val config = host?.clientId?.let { manager.getDevice(it) }
+                    if (host?.isAuthorized == true && (config == null || config.allowCalls || config.allowSms)) {
+                        Log.d(TAG, "[$hostName] Rehber senkronizasyon isteği kabul edildi")
+                        onContactsRequestReceived?.invoke(hostKey)
+                    } else {
+                        Log.w(TAG, "[$hostName] İzin kapalı veya yetkisiz, rehber senkronizasyonu reddedildi.")
+                    }
+                }
+
                 ProtocolEvents.PONG -> {}
             }
         } catch (e: Exception) {
@@ -565,6 +589,26 @@ class SyncWebSocketClient(
         val host = hosts[hostKey]
         if (host != null && host.isConnected) {
             host.webSocket?.send(json)
+        }
+    }
+
+    fun sendOpenUrl(url: String, targetHostKey: String? = null) {
+        val payload = OpenUrlPayload(url = url, sender = Build.MODEL)
+        val json = payload.toSyncMessage(ProtocolEvents.OPEN_URL)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendContactsResponse(contacts: List<ContactItem>, targetHostKey: String? = null) {
+        val payload = ContactsResponsePayload(contacts = contacts)
+        val json = payload.toSyncMessage(ProtocolEvents.CONTACTS_RESPONSE)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
         }
     }
 

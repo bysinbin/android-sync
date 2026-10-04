@@ -1014,6 +1014,18 @@
                         android:textColor="@color/white"
                         android:textSize="13sp"
                         android:textStyle="bold" />
+
+                    <androidx.appcompat.widget.AppCompatButton
+                        android:id="@+id/btnTriggerContactsSync"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/btn_secondary"
+                        android:backgroundTint="@null"
+                        android:text="👥 Telefon Rehberini Eşitle"
+                        android:textColor="@color/white"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -1112,6 +1124,79 @@
                         android:text="📂 İndirilenler Klasörünü Aç"
                         android:textColor="@color/white"
                         android:textSize="13sp" />
+                </LinearLayout>
+
+                <!-- Send URL to PC Card -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/card_bg"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:layout_marginBottom="14dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🌐 BİLGİSAYARDA SEKME / URL AÇ"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp"
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Telefonda gezindiğiniz bir web sayfasını doğrudan bilgisayarınızın varsayılan tarayıcısında (Chrome, Edge vb.) anında açın."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+
+                    <EditText
+                        android:id="@+id/etWebUrlInput"
+                        android:layout_width="match_parent"
+                        android:layout_height="44dp"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/card_bg"
+                        android:hint="https://... bağlantı adresi girin"
+                        android:textColorHint="@color/text_secondary"
+                        android:textColor="@color/text_primary"
+                        android:paddingHorizontal="12dp"
+                        android:inputType="textUri"
+                        android:singleLine="true"
+                        android:textSize="13sp" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="10dp">
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnSendUrlToPC"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_weight="1"
+                            android:background="@drawable/btn_primary"
+                            android:backgroundTint="@null"
+                            android:text="🚀 Bilgisayarda Aç"
+                            android:textColor="@color/white"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnPasteAndSendUrl"
+                            android:layout_width="wrap_content"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="8dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="📋 Yapıştır &amp; Aç"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="14dp"
+                            android:textSize="12sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
                 </LinearLayout>
             </LinearLayout>
 
@@ -1275,6 +1360,55 @@
 
                         <androidx.appcompat.widget.AppCompatButton
                             android:id="@+id/btnGrantSms"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:background="@drawable/btn_secondary"
+                            android:backgroundTint="@null"
+                            android:text="İzin Ver"
+                            android:textColor="@color/white"
+                            android:paddingHorizontal="12dp"
+                            android:textSize="11sp" />
+                    </LinearLayout>
+
+                    <View
+                        android:layout_width="match_parent"
+                        android:layout_height="1dp"
+                        android:background="@color/card_border"
+                        android:layout_marginVertical="8dp" />
+
+                    <!-- Contacts Access -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:paddingVertical="6dp">
+
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="👥 Telefon Rehberi Erişimi"
+                                android:textColor="@color/text_primary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvContactsPermissionStatus"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Durum kontrol ediliyor..."
+                                android:textColor="@color/text_secondary"
+                                android:textSize="11sp" />
+                        </LinearLayout>
+
+                        <androidx.appcompat.widget.AppCompatButton
+                            android:id="@+id/btnGrantContacts"
                             android:layout_width="wrap_content"
                             android:layout_height="36dp"
                             android:background="@drawable/btn_secondary"

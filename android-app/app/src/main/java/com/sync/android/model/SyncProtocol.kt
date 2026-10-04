@@ -26,6 +26,9 @@ object ProtocolEvents {
     const val FILE_UPLOAD_NOTIFY = "file_upload_notify"
     const val NOTIFICATION_REPLY = "notification_reply"
     const val REMOTE_ACTION = "remote_action"
+    const val OPEN_URL = "open_url"
+    const val CONTACTS_REQUEST = "contacts_request"
+    const val CONTACTS_RESPONSE = "contacts_response"
     const val PING = "ping"
     const val PONG = "pong"
 }
@@ -102,6 +105,21 @@ data class NotificationReplyPayload(
 data class RemoteActionPayload(
     val action: String, // LOCK, SLEEP, SHUTDOWN, RESTART
     val param: String? = null
+)
+
+data class OpenUrlPayload(
+    val url: String,
+    val sender: String? = null
+)
+
+data class ContactItem(
+    val id: String,
+    val name: String,
+    val number: String
+)
+
+data class ContactsResponsePayload(
+    val contacts: List<ContactItem>
 )
 
 data class CallStatePayload(

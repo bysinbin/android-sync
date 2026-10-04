@@ -64,6 +64,8 @@ type SyncServer struct {
 	transferredFiles []TransferredFile
 	filesMu          sync.RWMutex
 	sharedFilesDir   string
+	contacts         []protocol.ContactItem
+	contactsMu       sync.RWMutex
 }
 
 type TransferredFile struct {
@@ -143,6 +145,7 @@ func NewSyncServer(port int, serverName string, clipManager *windows.ClipboardMa
 		smsMessages:      make([]protocol.SmsMessage, 0, 100),
 		transferredFiles: make([]TransferredFile, 0, 50),
 		sharedFilesDir:   getSharedFilesDir(),
+		contacts:         make([]protocol.ContactItem, 0, 100),
 	}
 	s.saveConfig()
 	return s
@@ -281,9 +284,14 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		copy(filesCopy, s.transferredFiles)
 		s.filesMu.RUnlock()
 
+		s.contactsMu.RLock()
+		contactsCount := len(s.contacts)
+		s.contactsMu.RUnlock()
+
 		statusResp["files_count"] = len(filesCopy)
 		statusResp["transferred_files"] = filesCopy
 		statusResp["downloads_dir"] = getDownloadsDir()
+		statusResp["contacts_count"] = contactsCount
 
 		_ = json.NewEncoder(w).Encode(statusResp)
 	})
@@ -721,6 +729,65 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
 
+	// Contacts List API
+	mux.HandleFunc("/contacts", func(w http.ResponseWriter, r *http.Request) {
+		s.contactsMu.RLock()
+		contactsCopy := make([]protocol.ContactItem, len(s.contacts))
+		copy(contactsCopy, s.contacts)
+		s.contactsMu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"contacts": contactsCopy,
+			"count":    len(contactsCopy),
+		})
+	})
+
+	// Contacts Refresh API (Requests sync from phone)
+	mux.HandleFunc("/contacts/refresh", func(w http.ResponseWriter, r *http.Request) {
+		s.RequestContactsSync()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+
+	// Send URL / Tab to Phone
+	mux.HandleFunc("/url/send_to_phone", func(w http.ResponseWriter, r *http.Request) {
+		rawURL := r.URL.Query().Get("url")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if u := r.FormValue("url"); u != "" {
+				rawURL = u
+			}
+		}
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			http.Error(w, "url required", http.StatusBadRequest)
+			return
+		}
+		s.SendOpenUrlToPhone(rawURL)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "url": rawURL})
+	})
+
+	// Open URL in Local Browser
+	mux.HandleFunc("/url/open_local", func(w http.ResponseWriter, r *http.Request) {
+		rawURL := r.URL.Query().Get("url")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if u := r.FormValue("url"); u != "" {
+				rawURL = u
+			}
+		}
+		rawURL = strings.TrimSpace(rawURL)
+		if rawURL == "" {
+			http.Error(w, "url required", http.StatusBadRequest)
+			return
+		}
+		_ = s.openURLInBrowser(rawURL)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "url": rawURL})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -865,6 +932,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.configMu.Unlock()
 				log.Printf("[Güvenlik] 🔒 Yetkilendirme başarılı! (%s)", p.ClientName)
 				s.RequestSmsSync()
+				s.RequestContactsSync()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -880,6 +948,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.saveAuthToken(p.AuthToken, p.DeviceName)
 				log.Printf("[Güvenlik] 📱 Yeni eşleştirme onaylandı: %s (Token güvenle kaydedildi)", p.DeviceName)
 				s.RequestSmsSync()
+				s.RequestContactsSync()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1023,12 +1092,56 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			s.executeRemoteAction(p.Action)
 		}
 
+	case protocol.EventOpenUrl:
+		var p protocol.OpenUrlPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil && p.URL != "" {
+			log.Printf("[Sekme Paylaşımı] Telefondan web bağlantısı alındı: %s", p.URL)
+			_ = s.openURLInBrowser(p.URL)
+			_ = windows.ShowToast("🌐 Telefondan Bağlantı Açıldı", p.URL, "Android Sync")
+		}
+
+	case protocol.EventContactsResponse:
+		var p protocol.ContactsResponsePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.contactsMu.Lock()
+			s.contacts = p.Contacts
+			s.contactsMu.Unlock()
+			log.Printf("[Rehber] %d adet kişi telefondan başarıyla senkronize edildi", len(p.Contacts))
+		}
+
 	case protocol.EventPing:
 		resp, _ := protocol.NewMessage(protocol.EventPong, map[string]int64{"time": time.Now().UnixMilli()})
 		s.Broadcast(resp)
 
 	default:
 		log.Printf("[Server] Bilinmeyen event: %s", msg.Event)
+	}
+}
+
+func (s *SyncServer) openURLInBrowser(rawURL string) error {
+	u := strings.TrimSpace(rawURL)
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		u = "https://" + u
+	}
+	return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+}
+
+func (s *SyncServer) SendOpenUrlToPhone(url string) {
+	msg, err := protocol.NewMessage(protocol.EventOpenUrl, protocol.OpenUrlPayload{
+		URL:    url,
+		Sender: s.serverName,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Sekme Paylaşımı] URL telefona gönderildi: %s", url)
+	}
+}
+
+func (s *SyncServer) RequestContactsSync() {
+	msg, err := protocol.NewMessage(protocol.EventContactsRequest, map[string]any{})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Rehber] Telefon rehberi senkronizasyon isteği gönderildi")
 	}
 }
 
@@ -1764,6 +1877,13 @@ const dashboardHTML = `<!DOCTYPE html>
                     <span>📁</span> <span>Dosya Paylaşımı</span>
                     <span class="nav-badge" id="filesNavBadge">0</span>
                 </li>
+                <li class="nav-item" onclick="switchTab('contacts')">
+                    <span>👥</span> <span>Rehber &amp; Kişiler</span>
+                    <span class="nav-badge" id="contactsNavBadge">0</span>
+                </li>
+                <li class="nav-item" onclick="switchTab('tabsharing')">
+                    <span>🌐</span> <span>Sekme Paylaşımı</span>
+                </li>
             </ul>
 
             <div style="margin-top: auto; padding: 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-md); font-size: 11px; color: var(--text-muted); text-align: center;">
@@ -2204,6 +2324,83 @@ const dashboardHTML = `<!DOCTYPE html>
                     </div>
                 </div>
             </div>
+
+            <!-- TAB 8: Kişiler & Rehber -->
+            <div id="tab-contacts" class="tab-content">
+                <div class="overview-grid">
+                    <div class="card col-12">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
+                            <div>
+                                <h3 style="font-size: 18px; font-weight: 800;">👥 Telefon Rehberi &amp; Kişiler</h3>
+                                <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                                    Telefonunuzdaki kişilerle doğrudan arama başlatabilir veya SMS gönderebilirsiniz.
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <span class="nav-badge" id="contactsHeaderBadge" style="font-size: 13px; padding: 6px 14px;">0 Kişi</span>
+                                <button class="btn btn-secondary" onclick="refreshContacts()" style="font-size: 13px; padding: 8px 16px;">🔄 Telefından Yenile</button>
+                            </div>
+                        </div>
+
+                        <!-- Search Bar -->
+                        <div style="position: relative; margin-bottom: 20px;">
+                            <input type="text" id="contactsSearchInput" class="search-input" placeholder="🔍 İsim veya telefon numarası ile hızlı filtreleyin..." oninput="filterContacts()" style="padding: 12px 18px; font-size: 14px; background: rgba(0,0,0,0.25);">
+                        </div>
+
+                        <!-- Contacts Grid Container -->
+                        <div id="contactsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; max-height: calc(100vh - 300px); overflow-y: auto; padding-right: 4px;">
+                            <div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--text-muted);">
+                                Rehber yükleniyor veya telefondan senkronize ediliyor...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 9: Sekme Paylaşımı -->
+            <div id="tab-tabsharing" class="tab-content">
+                <div class="overview-grid">
+                    <!-- Send URL Card -->
+                    <div class="card col-12">
+                        <div style="margin-bottom: 20px;">
+                            <h3 style="font-size: 18px; font-weight: 800;">🌐 Sekme ve Web Sayfası Paylaşımı</h3>
+                            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                                Bilgisayarınızda veya telefonunuzda gezindiğiniz web sayfalarını diğer cihazın varsayılan tarayıcısında anında açın.
+                            </div>
+                        </div>
+
+                        <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-card); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 20px;">
+                            <label style="display: block; font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px;">Telefonda Açılacak Web Bağlantısı (URL):</label>
+                            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                <input type="url" id="sendTabUrlInput" class="chat-input" placeholder="https://ornek-site.com/sayfa" style="flex: 1; min-width: 250px;">
+                                <button class="btn btn-primary" onclick="sendTabToPhone()" style="padding: 12px 24px; font-weight: 700;">🚀 Telefonda Anında Aç</button>
+                                <button class="btn btn-secondary" onclick="openLocalTab()" style="padding: 12px 18px;">💻 Bu PC'de Aç</button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Shortcuts -->
+                        <div style="margin-bottom: 24px;">
+                            <div style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 10px;">Hızlı Kısayollar:</div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fillAndSendUrl('https://github.com')">🐙 GitHub</button>
+                                <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fillAndSendUrl('https://youtube.com')">▶ YouTube</button>
+                                <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fillAndSendUrl('https://maps.google.com')">🗺 Google Maps</button>
+                                <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 12px;" onclick="fillAndSendUrl('https://wikipedia.org')">📖 Wikipedia</button>
+                            </div>
+                        </div>
+
+                        <!-- Shared Links History -->
+                        <div>
+                            <h4 style="font-size: 15px; font-weight: 700; margin-bottom: 12px;">🔗 Son Paylaşılan Bağlantılar</h4>
+                            <div id="sharedTabsList" style="display: flex; flex-direction: column; gap: 8px;">
+                                <div style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">
+                                    Henüz paylaşılan bir web sekmesi yok. Telefonda tarayıcıdan "Paylaş &gt; Android Sync" seçerek de buraya sekme gönderebilirsiniz!
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -2221,7 +2418,7 @@ const dashboardHTML = `<!DOCTYPE html>
             const targetTab = document.getElementById('tab-' + tabId);
             if (targetTab) targetTab.classList.add('active');
 
-            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files'].indexOf(tabId);
+            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files', 'contacts', 'tabsharing'].indexOf(tabId);
             const navItems = document.querySelectorAll('.nav-item');
             if (navIdx >= 0 && navItems[navIdx]) navItems[navIdx].classList.add('active');
 
@@ -2232,7 +2429,9 @@ const dashboardHTML = `<!DOCTYPE html>
                 'media': 'Medya & Ses',
                 'clipboard': 'Ortak Pano',
                 'notifications': 'Canlı Bildirimler',
-                'files': 'Wi-Fi Dosya Paylaşımı'
+                'files': 'Wi-Fi Dosya Paylaşımı',
+                'contacts': 'Telefon Rehberi & Kişiler',
+                'tabsharing': 'Sekme & Bağlantı Paylaşımı'
             };
             document.getElementById('pageTitle').innerText = titles[tabId] || 'Genel Bakış';
 
@@ -2240,6 +2439,8 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadSmsList();
             } else if (tabId === 'files') {
                 loadTransferredFiles();
+            } else if (tabId === 'contacts') {
+                loadContactsList();
             }
         }
 
@@ -2285,6 +2486,14 @@ const dashboardHTML = `<!DOCTYPE html>
                     document.getElementById('devSub').innerText = (data.is_charging ? '⚡ Şarj Oluyor' : 'Pilde Çalışıyor');
                     document.getElementById('devBattery').innerText = (data.battery_level >= 0 ? data.battery_level + '%' : '--%');
                     document.getElementById('devBatteryBar').style.width = (data.battery_level >= 0 ? data.battery_level + '%' : '0%');
+                }
+
+                // Contacts Count
+                if (data.contacts_count !== undefined) {
+                    const cBadge = document.getElementById('contactsNavBadge');
+                    if (cBadge) cBadge.innerText = data.contacts_count;
+                    const chBadge = document.getElementById('contactsHeaderBadge');
+                    if (chBadge) chBadge.innerText = data.contacts_count + ' Kişi';
                 }
 
                 // Call State
@@ -2930,6 +3139,184 @@ const dashboardHTML = `<!DOCTYPE html>
             }, false);
         }
 
+        let allContacts = [];
+        let sharedTabsHistory = [];
+
+        async function loadContactsList() {
+            try {
+                const res = await fetch('/contacts');
+                const data = await res.json();
+                allContacts = data.contacts || [];
+                renderContacts(allContacts);
+                const badge = document.getElementById('contactsNavBadge');
+                if (badge) badge.innerText = allContacts.length;
+                const hBadge = document.getElementById('contactsHeaderBadge');
+                if (hBadge) hBadge.innerText = allContacts.length + ' Kişi';
+            } catch (e) {
+                console.error('Rehber yükleme hatası:', e);
+            }
+        }
+
+        async function refreshContacts() {
+            try {
+                await fetch('/contacts/refresh', { method: 'POST' });
+                alert('📱 Telefona rehber senkronizasyon isteği gönderildi. Birkaç saniye içinde güncellenecektir.');
+                setTimeout(loadContactsList, 1500);
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        function filterContacts() {
+            const query = (document.getElementById('contactsSearchInput').value || '').toLowerCase().trim();
+            if (!query) {
+                renderContacts(allContacts);
+                return;
+            }
+            const filtered = allContacts.filter(c => 
+                (c.name && c.name.toLowerCase().includes(query)) ||
+                (c.number && c.number.replace(/\s+/g, '').includes(query.replace(/\s+/g, '')))
+            );
+            renderContacts(filtered);
+        }
+
+        function renderContacts(list) {
+            const grid = document.getElementById('contactsGrid');
+            if (!grid) return;
+            if (!list || list.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--text-muted);">Rehberde görüntülenecek kişi bulunamadı veya arama sonucu boş.</div>';
+                return;
+            }
+
+            const gradients = [
+                'linear-gradient(135deg, #4F46E5, #06B6D4)',
+                'linear-gradient(135deg, #10B981, #059669)',
+                'linear-gradient(135deg, #F59E0B, #D97706)',
+                'linear-gradient(135deg, #EC4899, #8B5CF6)',
+                'linear-gradient(135deg, #3B82F6, #1D4ED8)'
+            ];
+
+            grid.innerHTML = list.map(function(c, idx) {
+                var initials = (c.name || 'İ').trim().split(' ').map(function(w) { return w[0]; }).join('').substring(0, 2).toUpperCase();
+                var grad = gradients[idx % gradients.length];
+                var safeName = (c.name || 'İsimsiz').replace(/'/g, "\\'");
+                var safeNum = (c.number || '').replace(/'/g, "\\'");
+
+                return '<div style="background: rgba(18, 24, 38, 0.7); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 16px; display: flex; flex-direction: column; gap: 12px; transition: all 0.2s;">' +
+                    '<div style="display: flex; align-items: center; gap: 12px;">' +
+                        '<div style="width: 44px; height: 44px; border-radius: 50%; background: ' + grad + '; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 15px; color: white; flex-shrink: 0;">' +
+                            initials +
+                        '</div>' +
+                        '<div style="overflow: hidden; flex: 1;">' +
+                            '<div style="font-weight: 700; font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + escapeHtml(c.name) + '</div>' +
+                            '<div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">' + escapeHtml(c.number) + '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display: flex; gap: 6px; margin-top: auto; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.06);">' +
+                        '<button class="btn btn-success" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="callAction(\'DIAL\', \'' + safeNum + '\')" title="Telefonla Ara">📞 Ara</button>' +
+                        '<button class="btn btn-primary" style="flex: 1; padding: 6px 0; font-size: 11px;" onclick="startSmsWith(\'' + safeNum + '\', \'' + safeName + '\')" title="SMS Gönder">💬 SMS</button>' +
+                        '<button class="btn btn-secondary" style="padding: 6px 10px; font-size: 11px;" onclick="copyTextToClip(\'' + safeNum + '\')" title="Numarayı Kopyala">📋</button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        function copyTextToClip(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                alert('Panoya kopyalandı: ' + text);
+            }).catch(() => {
+                const el = document.createElement('textarea');
+                el.value = text;
+                document.body.appendChild(el);
+                el.select();
+                document.execCommand('copy');
+                document.body.removeChild(el);
+                alert('Panoya kopyalandı: ' + text);
+            });
+        }
+
+        function startSmsWith(number, name) {
+            switchTab('sms');
+            setTimeout(() => {
+                const searchInput = document.querySelector('.chat-search-bar input');
+                if (searchInput) {
+                    searchInput.value = number;
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+            }, 100);
+        }
+
+        async function sendTabToPhone() {
+            const input = document.getElementById('sendTabUrlInput');
+            let url = (input.value || '').trim();
+            if (!url) {
+                alert('Lütfen geçerli bir web adresi girin!');
+                return;
+            }
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+            try {
+                const res = await fetch('/url/send_to_phone?url=' + encodeURIComponent(url), { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    input.value = '';
+                    addSharedTabHistory(url, 'outgoing');
+                    alert('🌐 Bağlantı telefona iletildi! Telefonda tarayıcı anında açılacaktır.');
+                }
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        async function openLocalTab() {
+            const input = document.getElementById('sendTabUrlInput');
+            let url = (input.value || '').trim();
+            if (!url) return;
+            try {
+                await fetch('/url/open_local?url=' + encodeURIComponent(url), { method: 'POST' });
+            } catch (e) {}
+        }
+
+        function fillAndSendUrl(url) {
+            const input = document.getElementById('sendTabUrlInput');
+            if (input) input.value = url;
+            sendTabToPhone();
+        }
+
+        function addSharedTabHistory(url, dir) {
+            sharedTabsHistory.unshift({ url, dir, time: new Date() });
+            if (sharedTabsHistory.length > 20) sharedTabsHistory.pop();
+            renderSharedTabs();
+        }
+
+        function renderSharedTabs() {
+            const container = document.getElementById('sharedTabsList');
+            if (!container) return;
+            if (sharedTabsHistory.length === 0) return;
+
+            container.innerHTML = sharedTabsHistory.map(function(item) {
+                var isOut = item.dir === 'outgoing';
+                var icon = isOut ? '📱 ➡️' : '💻 ⬅️';
+                var timeStr = item.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                var safeUrl = escapeHtml(item.url);
+                var rawUrl = item.url.replace(/'/g, "\\'");
+                return '<div style="background: rgba(18, 24, 38, 0.6); border: 1px solid var(--border-card); border-radius: var(--radius-md); padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">' +
+                    '<div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">' +
+                        '<span style="font-size: 16px;">' + icon + '</span>' +
+                        '<div style="overflow: hidden;">' +
+                            '<a href="' + safeUrl + '" target="_blank" style="color: var(--accent-blue); text-decoration: none; font-size: 13px; font-weight: 600; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + safeUrl + '</a>' +
+                            '<span style="font-size: 11px; color: var(--text-muted);">' + timeStr + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="display: flex; gap: 6px; flex-shrink: 0;">' +
+                        '<button class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px;" onclick="copyTextToClip(\'' + rawUrl + '\')">📋 Kopyala</button>' +
+                        '<a class="btn btn-primary" style="font-size: 11px; padding: 4px 10px; text-decoration: none;" href="' + safeUrl + '" target="_blank">Aç 🔗</a>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
         function escapeHtml(str) {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
@@ -2944,6 +3331,7 @@ const dashboardHTML = `<!DOCTYPE html>
         updateStatus();
         loadSmsList();
         loadTransferredFiles();
+        loadContactsList();
         window.addEventListener('DOMContentLoaded', setupDropZone);
         setTimeout(setupDropZone, 500);
     </script>

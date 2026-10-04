@@ -18,8 +18,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.sync.android.network.DiscoveryClient
 import com.sync.android.network.SyncWebSocketClient
-
 import android.app.PendingIntent
+import android.net.Uri
 import com.sync.android.MainActivity
 import com.sync.android.R
 
@@ -214,6 +214,10 @@ class SyncForegroundService : Service() {
                 val msgs = SmsSyncManager.fetchRecentMessages(this@SyncForegroundService, 100)
                 webSocketClient?.sendSmsSyncResponse(msgs, targetHostKey = hostKey)
             }
+            onContactsRequestReceived = { hostKey ->
+                val contacts = ContactsManager.fetchContacts(this@SyncForegroundService)
+                webSocketClient?.sendContactsResponse(contacts, targetHostKey = hostKey)
+            }
             onSmsSendRequested = { recipient, body, _ ->
                 val (success, error) = SmsSyncManager.sendSms(this@SyncForegroundService, recipient, body)
                 webSocketClient?.sendSmsSentStatus(success, recipient, body, error)
@@ -236,6 +240,9 @@ class SyncForegroundService : Service() {
                     text = payload.reply_text
                 )
                 Log.d(TAG, "Bildirime yanıt verildi: $ok (key=${payload.notification_key})")
+            }
+            onOpenUrlReceived = { url, _ ->
+                openUrlInBrowser(url)
             }
         }
 
@@ -283,6 +290,22 @@ class SyncForegroundService : Service() {
 
         nm.notify(notifId, builder.build())
         Log.d(TAG, "Telefonda PC bildirimi gösterildi: [$app] $title - $body")
+    }
+
+    private fun openUrlInBrowser(rawUrl: String) {
+        var url = rawUrl.trim()
+        if (!url.startsWith("http://") && !url.startsWith("https://")) {
+            url = "https://$url"
+        }
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            startActivity(intent)
+            Log.d(TAG, "URL varsayılan tarayıcıda açıldı: $url")
+        } catch (e: Exception) {
+            Log.e(TAG, "URL açma hatası ($url): ${e.message}")
+        }
     }
 
     private fun initClipboard() {

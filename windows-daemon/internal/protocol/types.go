@@ -26,6 +26,9 @@ const (
 	EventFileUploadNotify     = "file_upload_notify"
 	EventNotificationReply    = "notification_reply"
 	EventRemoteAction         = "remote_action"
+	EventOpenUrl              = "open_url"
+	EventContactsRequest      = "contacts_request"
+	EventContactsResponse     = "contacts_response"
 	EventPing                 = "ping"
 	EventPong                 = "pong"
 )
@@ -190,6 +193,24 @@ type NotificationReplyPayload struct {
 type RemoteActionPayload struct {
 	Action string `json:"action"` // "LOCK", "SLEEP", "SHUTDOWN", "RESTART"
 	Param  string `json:"param,omitempty"`
+}
+
+// OpenUrlPayload carries a URL to be opened in default browser.
+type OpenUrlPayload struct {
+	URL    string `json:"url"`
+	Sender string `json:"sender,omitempty"`
+}
+
+// ContactItem represents a contact entry from the phone.
+type ContactItem struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Number string `json:"number"`
+}
+
+// ContactsResponsePayload contains the phone's contact list.
+type ContactsResponsePayload struct {
+	Contacts []ContactItem `json:"contacts"`
 }
 
 // Helper to construct a Message with serialized payload.
