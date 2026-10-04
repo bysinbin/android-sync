@@ -34,7 +34,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ✅ **Var (Tamamlandı - Hotkeys)** | ❌ Yok | ✅ Var |
 | | Sunum Kumandası (Slayt Değiştirici & Pointer) | ✅ **Var (Tamamlandı - F5/Esc/Slayt)** | ❌ Yok | ✅ Var |
 | | Uzaktan Özel Komut Çalıştırma (Lock, Sleep, Shutdown) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
-| | Biyometrik Kilit Açma (Parmak iziyle PC kilidi) | ❌ Eksik | ❌ Yok | ⚠️ Kısmi |
+| | Biyometrik Kilit Açma (Parmak iziyle PC/Mac kilidi) | ✅ **Var (Tamamlandı)** | ❌ Yok | ⚠️ Kısmi |
 | **Pano & Sistem** | Ortak Pano (Düz Metin) | ✅ Var | ✅ Var | ✅ Var |
 | | Ortak Pano (Görsel ve Zengin İçerik) | ✅ **Var (Tamamlandı)** | ✅ Var | ✅ Var |
 | | Telefonu Bul (Uzaktan Çaldır & Sustur) | ✅ Var | ❌ Yok | ✅ Var |
@@ -130,7 +130,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 
 ```mermaid
 graph TD
-    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama & Aksiyon Butonları, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu, Sanal Touchpad & Sunum Kumandası] --> B[Aktif / Sonraki: Canlı Telefon Ekranı Yansıtma / Scrcpy]
+    A[Tamamlandı: Wi-Fi Dosya Transferi, Bildirimden Yanıtlama & Aksiyon Butonları, PC Komutları, Rehber & Sekme Paylaşımı, Fotoğraf Galerisi & Görsel Panosu, Sanal Touchpad & Biyometrik Kilit Açma] --> B[Aktif / Sonraki: Canlı Telefon Ekranı Yansıtma / Scrcpy]
 ```
 
 ### Tamamlanan ve Sıradaki Geliştirme Fazları:
@@ -138,6 +138,8 @@ graph TD
   - **Bildirim Aksiyon Butonları (Notification Actions):** *(✅ Tamamlandı)* Telefonda bildirimle gelen interaktif butonların (Örn: "Okundu Say", "Arşive Kaldır", "Onayla") PC ve Mac arayüzünde canlı butonlar olarak listelenmesi ve tıklandığında anında telefonda tetiklenmesi.
   - **Çift Yönlü Bildirim Kapatma (Dismiss Sync):** *(✅ Tamamlandı)* PC'de veya Mac'te bildirim kapatıldığında (✕) anında telefondan da silinmesi; aynı şekilde telefonda kaydırılarak kapatılan bildirimlerin PC ve Mac arayüzünden anında temizlenmesi.
   - **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas bir dokunmatik laptop trackpad'i (1 parmak imleç, 1 parmak tıkla sol tık, 2 parmak tıkla sağ tık, 2 parmak dikey kaydır kaydırma/scroll) veya slayt / sunum uzaktan kumandası (F5, Esc, Enter, Önceki/Sonraki Slayt) olarak kullanarak Windows ve macOS'u gecikmesiz yönetebilme.
+  - **Biyometrik Kilit Açma (Biometric Unlock):** *(✅ Tamamlandı)* Android `BiometricPrompt` ile telefonun parmak izi veya yüz tanıması kullanılarak Windows veya Mac kilit ekranının anında uyandırılması ve isteğe bağlı PIN/parolanın güvenle tuşlanıp masaüstünün açılması.
 - **Faz 2 (İleri Düzey Entegrasyonlar - Sonraki):**
   - **Canlı Ekran Yansıtma (Screen Mirroring):** Telefon ekranını PC/Mac tarayıcısında gerçek zamanlı izleme ve uzaktan kontrol.
+
 

@@ -1412,6 +1412,13 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			macos.HandleTouchpadEvent(p)
 		}
 
+	case protocol.EventBiometricUnlock:
+		var p protocol.BiometricUnlockPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			macos.HandleBiometricUnlock(p)
+		}
+
+
 	case protocol.EventPong:
 		// Heartbeat
 	}

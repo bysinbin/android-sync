@@ -19,6 +19,7 @@ mac-daemon/mediactl
 mac-daemon/mac-media-info
 windows-sync.exe
 windows-daemon/windows-sync.exe
+mac-sync
 *.exe
 
 # Android / Gradle build files

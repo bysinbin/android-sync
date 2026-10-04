@@ -495,6 +495,11 @@ class SyncForegroundService : Service() {
         webSocketClient?.sendTouchpadEvent(payload, targetHostKey)
     }
 
+    fun sendBiometricUnlock(pin: String? = null, targetHostKey: String? = null) {
+        webSocketClient?.sendBiometricUnlock(pin, targetHostKey)
+    }
+
+
     fun connectDirectly(ip: String, port: Int = 42424) {
         webSocketClient?.connect(ip, port, "Doğrudan ($ip)")
     }

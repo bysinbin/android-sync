@@ -25,6 +25,8 @@ import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
 import com.sync.android.network.ConnectedHost
 import com.sync.android.security.PairedDeviceManager
 import com.sync.android.security.PairedHostConfig
@@ -77,6 +79,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnRemoteEsc: Button
     private lateinit var btnRemoteSpace: Button
     private lateinit var btnRemoteEnter: Button
+    private lateinit var btnBiometricUnlock: Button
+    private lateinit var etUnlockPin: EditText
+    private lateinit var btnSaveUnlockPin: Button
     private var touchpadSensitivity: Float = 1.5f
 
     // File Sharing & URL Views
@@ -372,6 +377,9 @@ class MainActivity : AppCompatActivity() {
         btnRemoteEsc = findViewById(R.id.btnRemoteEsc)
         btnRemoteSpace = findViewById(R.id.btnRemoteSpace)
         btnRemoteEnter = findViewById(R.id.btnRemoteEnter)
+        btnBiometricUnlock = findViewById(R.id.btnBiometricUnlock)
+        etUnlockPin = findViewById(R.id.etUnlockPin)
+        btnSaveUnlockPin = findViewById(R.id.btnSaveUnlockPin)
 
         // Files views
         btnSelectAndSendFile = findViewById(R.id.btnSelectAndSendFile)
@@ -790,6 +798,26 @@ class MainActivity : AppCompatActivity() {
             sendTouchpadKey("ENTER")
         }
 
+        // Biometric Unlock & PIN Setup
+        val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+        val savedPin = prefs.getString("pc_unlock_pin", "") ?: ""
+        if (savedPin.isNotEmpty()) {
+            etUnlockPin.setText(savedPin)
+        }
+
+        btnSaveUnlockPin.setOnClickListener {
+            val pin = etUnlockPin.text.toString().trim()
+            prefs.edit().putString("pc_unlock_pin", pin).apply()
+            it.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            Toast.makeText(this, if (pin.isNotEmpty()) "PIN kaydedildi ✅" else "PIN temizlendi", Toast.LENGTH_SHORT).show()
+        }
+
+        btnBiometricUnlock.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            triggerBiometricUnlock()
+        }
+
+
         // Gesture Trackpad Surface
         var lastTouchX = 0f
         var lastTouchY = 0f
@@ -884,6 +912,54 @@ class MainActivity : AppCompatActivity() {
         val payload = TouchpadEventPayload(type = "key", key = key)
         SyncForegroundService.instance?.sendTouchpadEvent(payload)
     }
+
+    private fun triggerBiometricUnlock() {
+        val biometricManager = BiometricManager.from(this)
+        val canAuthenticate = biometricManager.canAuthenticate(
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        )
+
+        if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
+            // Cihazda biyometri veya kilit yoksa, doğrudan kayıtlı PIN ile açmayı dene
+            val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+            val pin = prefs.getString("pc_unlock_pin", null)
+            SyncForegroundService.instance?.sendBiometricUnlock(pin)
+            Toast.makeText(this, "🔐 Kilit açma komutu gönderildi", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val executor = ContextCompat.getMainExecutor(this)
+        val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                super.onAuthenticationSucceeded(result)
+                val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
+                val pin = prefs.getString("pc_unlock_pin", null)
+                SyncForegroundService.instance?.sendBiometricUnlock(pin)
+                Toast.makeText(this@MainActivity, "✅ Parmak izi doğrulandı, bilgisayar kilidi açılıyor...", Toast.LENGTH_SHORT).show()
+            }
+
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                super.onAuthenticationError(errorCode, errString)
+                if (errorCode != BiometricPrompt.ERROR_USER_CANCELED && errorCode != BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                    Toast.makeText(this@MainActivity, "Biyometrik Hata: $errString", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onAuthenticationFailed() {
+                super.onAuthenticationFailed()
+                Toast.makeText(this@MainActivity, "❌ Parmak izi tanınmadı", Toast.LENGTH_SHORT).show()
+            }
+        })
+
+        val promptInfo = BiometricPrompt.PromptInfo.Builder()
+            .setTitle("Bilgisayar Kilidini Aç")
+            .setSubtitle("Windows / macOS oturumunu açmak için kimliğinizi doğrulayın")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+            .build()
+
+        biometricPrompt.authenticate(promptInfo)
+    }
+
 
     private fun updateMediaUI(info: MediaInfoPayload) {
         val title = if (info.title.isNotBlank()) info.title else "Medya Çalmıyor"

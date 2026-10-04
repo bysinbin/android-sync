@@ -578,6 +578,21 @@ class SyncWebSocketClient(
         }
     }
 
+    fun sendBiometricUnlock(pin: String? = null, targetHostKey: String? = null) {
+        val payload = BiometricUnlockPayload(
+            status = "AUTHENTICATED",
+            unlock_pin = pin,
+            timestamp = System.currentTimeMillis()
+        )
+        val json = payload.toSyncMessage(ProtocolEvents.BIOMETRIC_UNLOCK)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+
     fun sendClipboard(payload: ClipboardPayload, excludeHostKey: String? = null) {
         val manager = PairedDeviceManager.getInstance(context)
         val json = payload.toSyncMessage(ProtocolEvents.CLIPBOARD)

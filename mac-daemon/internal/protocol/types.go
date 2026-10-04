@@ -28,6 +28,7 @@ const (
 	EventNotificationAction   = "notification_action"
 	EventNotificationDismiss  = "notification_dismiss"
 	EventTouchpadEvent        = "touchpad_event"
+	EventBiometricUnlock      = "biometric_unlock"
 	EventRemoteAction         = "remote_action"
 	EventOpenUrl              = "open_url"
 	EventContactsRequest      = "contacts_request"
@@ -225,6 +226,13 @@ type TouchpadEventPayload struct {
 	Button  string  `json:"button,omitempty"`  // "left", "right", "middle"
 	ScrollY int     `json:"scroll_y,omitempty"`
 	Key     string  `json:"key,omitempty"`     // "LEFT", "RIGHT", "UP", "DOWN", "F5", "ESC", "ENTER", "SPACE", "VOL_UP", "VOL_DOWN", "MUTE"
+}
+
+// BiometricUnlockPayload carries biometric approval and optional PIN to unlock PC/Mac.
+type BiometricUnlockPayload struct {
+	Status    string `json:"status"` // "REQUESTED", "AUTHENTICATED", "REJECTED"
+	UnlockPin string `json:"unlock_pin,omitempty"`
+	Timestamp int64  `json:"timestamp"`
 }
 
 // RemoteActionPayload carries remote control requests (lock, sleep, etc.)

@@ -28,6 +28,7 @@ object ProtocolEvents {
     const val NOTIFICATION_ACTION = "notification_action"
     const val NOTIFICATION_DISMISS = "notification_dismiss"
     const val TOUCHPAD_EVENT = "touchpad_event"
+    const val BIOMETRIC_UNLOCK = "biometric_unlock"
     const val REMOTE_ACTION = "remote_action"
     const val OPEN_URL = "open_url"
     const val CONTACTS_REQUEST = "contacts_request"
@@ -132,6 +133,12 @@ data class TouchpadEventPayload(
     val button: String? = null, // "left", "right", "middle"
     val scroll_y: Int? = null,
     val key: String? = null // "LEFT", "RIGHT", "UP", "DOWN", "F5", "ESC", "ENTER", "SPACE", "VOL_UP", "VOL_DOWN", "MUTE"
+)
+
+data class BiometricUnlockPayload(
+    val status: String, // "REQUESTED", "AUTHENTICATED", "REJECTED"
+    val unlock_pin: String? = null,
+    val timestamp: Long = System.currentTimeMillis()
 )
 
 data class RemoteActionPayload(

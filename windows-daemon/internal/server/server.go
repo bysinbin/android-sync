@@ -1268,6 +1268,13 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			windows.HandleTouchpadEvent(p)
 		}
 
+	case protocol.EventBiometricUnlock:
+		var p protocol.BiometricUnlockPayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			windows.HandleBiometricUnlock(p)
+		}
+
+
 	case protocol.EventPing:
 		resp, _ := protocol.NewMessage(protocol.EventPong, map[string]int64{"time": time.Now().UnixMilli()})
 		s.Broadcast(resp)

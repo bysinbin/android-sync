@@ -110,3 +110,44 @@ func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
 		sendVirtualKey(vk)
 	}
 }
+
+// HandleBiometricUnlock wakes up the screen and unlocks Windows if authenticated.
+func HandleBiometricUnlock(p protocol.BiometricUnlockPayload) {
+	if strings.ToUpper(p.Status) != "AUTHENTICATED" {
+		log.Printf("[Biometric] Kilit açma yetkisiz veya reddedildi: status=%s", p.Status)
+		return
+	}
+
+	log.Printf("[Biometric] Biyometrik kilit açma isteği alındı (PIN uzunluğu: %d)", len(p.UnlockPin))
+
+	// 1. Ekranı uyandır ve kilit perdesini kaldır (Space tuşu)
+	sendVirtualKey(VK_SPACE)
+	time.Sleep(120 * time.Millisecond)
+	sendVirtualKey(VK_SPACE)
+
+	// 2. Eğer PIN/Şifre varsa, kilit kutusunun odağı alması için kısa bir süre bekle ve yaz
+	if p.UnlockPin != "" {
+		time.Sleep(350 * time.Millisecond) // Lockscreen animasyon süresi
+
+		for _, ch := range p.UnlockPin {
+			// KEYEVENTF_UNICODE = 0x0004, KEYEVENTF_KEYUP = 0x0002
+			procKeybdEvent.Call(0, uintptr(ch), 0x0004, 0)
+			time.Sleep(15 * time.Millisecond)
+			procKeybdEvent.Call(0, uintptr(ch), 0x0004|KEYEVENTF_KEYUP, 0)
+			time.Sleep(30 * time.Millisecond)
+		}
+
+		time.Sleep(100 * time.Millisecond)
+		// Enter tuşu ile gönder
+		sendVirtualKey(VK_RETURN)
+	}
+
+	// 3. Kullanıcıya bildirim göster
+	go ShowToast(
+		"Biyometrik Kilit Açıldı 🔓",
+		"Telefonunuzun parmak izi/yüz tanımasıyla Windows kilidi başarıyla açıldı.",
+		"Android Sync",
+	)
+}
+
+

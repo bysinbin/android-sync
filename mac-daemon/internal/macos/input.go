@@ -5,9 +5,11 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"time"
 
 	"mac-sync/internal/protocol"
 )
+
 
 // HandleTouchpadEvent processes touchpad gestures and presentation hotkeys on macOS.
 func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
@@ -63,3 +65,34 @@ func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
 		}
 	}
 }
+
+// HandleBiometricUnlock wakes macOS display and enters password if authenticated.
+func HandleBiometricUnlock(p protocol.BiometricUnlockPayload) {
+	if strings.ToUpper(p.Status) != "AUTHENTICATED" {
+		log.Printf("[Biometric macOS] Kilit açma yetkisiz veya reddedildi: status=%s", p.Status)
+		return
+	}
+
+	log.Printf("[Biometric macOS] Biyometrik kilit açma isteği alındı (PIN uzunluğu: %d)", len(p.UnlockPin))
+
+	// 1. Ekranı uyandır
+	_ = exec.Command("caffeinate", "-u", "-t", "2").Run()
+	_ = exec.Command("osascript", "-e", `tell application "System Events" to key code 49`).Run() // Space
+
+	if p.UnlockPin != "" {
+		time.Sleep(350 * time.Millisecond)
+		safePin := strings.ReplaceAll(p.UnlockPin, `\`, `\\`)
+		safePin = strings.ReplaceAll(safePin, `"`, `\"`)
+		script := fmt.Sprintf(`tell application "System Events" to keystroke "%s" & return`, safePin)
+		_ = exec.Command("osascript", "-e", script).Run()
+	}
+
+	go ShowNotification(
+		"Biyometrik Kilit Açıldı 🔓",
+		"",
+		"Telefonunuzun parmak izi/yüz tanımasıyla Mac kilidiniz başarıyla açıldı.",
+		"Glass",
+	)
+}
+
+
