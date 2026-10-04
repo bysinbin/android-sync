@@ -52,6 +52,7 @@ class SyncForegroundService : Service() {
     lateinit var webDavServer: WebDavServer
     lateinit var hotspotManager: HotspotManager
     lateinit var callAudioBridgeManager: CallAudioBridgeManager
+    lateinit var appLaunchManager: AppLaunchManager
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
@@ -82,6 +83,7 @@ class SyncForegroundService : Service() {
         webDavServer = WebDavServer(this)
         hotspotManager = HotspotManager(this)
         callAudioBridgeManager = CallAudioBridgeManager(this)
+        appLaunchManager = AppLaunchManager(this)
 
         screenMirrorManager.onFrameEncoded = { b64, w, h ->
             webSocketClient?.sendScreenMirrorFrame(ScreenMirrorFramePayload(width = w, height = h, data = b64))
@@ -431,6 +433,16 @@ class SyncForegroundService : Service() {
                 } else if (payload.action == "DATA" && payload.direction == "PC_TO_PHONE" && payload.data != null) {
                     callAudioBridgeManager.handleIncomingPCAudio(payload.data)
                 }
+            }
+            onAppListRequested = { hostKey ->
+                Thread {
+                    val apps = appLaunchManager.getInstalledApps()
+                    webSocketClient?.sendAppListResponse(apps, targetHostKey = hostKey)
+                    Log.d(TAG, "Uygulama listesi gönderildi: ${apps.size} uygulama")
+                }.start()
+            }
+            onAppLaunchRequested = { payload, _ ->
+                appLaunchManager.launchApp(payload.package_name)
             }
         }
 

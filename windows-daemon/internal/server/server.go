@@ -79,6 +79,8 @@ type SyncServer struct {
 	isCallAudioActive bool
 	callAudioMu       sync.RWMutex
 	lastAudioFrame    string
+	installedApps     []protocol.InstalledAppInfo
+	appsMu            sync.RWMutex
 }
 
 type TransferredFile struct {
@@ -160,6 +162,7 @@ func NewSyncServer(port int, serverName string, clipManager *windows.ClipboardMa
 		sharedFilesDir:   getSharedFilesDir(),
 		contacts:         make([]protocol.ContactItem, 0, 100),
 		photos:           make([]protocol.PhotoItem, 0, 50),
+		installedApps:    make([]protocol.InstalledAppInfo, 0, 100),
 	}
 	s.saveConfig()
 	return s
@@ -1183,6 +1186,38 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
 	})
 
+	// App List API
+	mux.HandleFunc("/apps/list", func(w http.ResponseWriter, r *http.Request) {
+		s.appsMu.RLock()
+		apps := make([]protocol.InstalledAppInfo, len(s.installedApps))
+		copy(apps, s.installedApps)
+		s.appsMu.RUnlock()
+
+		if len(apps) == 0 {
+			s.SendAppListRequest()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"apps":    apps,
+			"count":   len(apps),
+		})
+	})
+
+	// App Launch API
+	mux.HandleFunc("/apps/launch", func(w http.ResponseWriter, r *http.Request) {
+		pkg := r.URL.Query().Get("pkg")
+		if pkg == "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "pkg query parameter required"})
+			return
+		}
+		s.SendAppLaunchRequest(pkg)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "pkg": pkg})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -1329,6 +1364,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.RequestSmsSync()
 				s.RequestContactsSync()
 				s.RequestPhotosSync()
+				s.SendAppListRequest()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1346,6 +1382,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.RequestSmsSync()
 				s.RequestContactsSync()
 				s.RequestPhotosSync()
+				s.SendAppListRequest()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1585,6 +1622,15 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			s.callAudioMu.Unlock()
 		}
 
+	case protocol.EventAppListResponse:
+		var p protocol.AppListResponsePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.appsMu.Lock()
+			s.installedApps = p.Apps
+			s.appsMu.Unlock()
+			log.Printf("[Uygulamalar] 📱 %d adet uygulama telefondan senkronize edildi", len(p.Apps))
+		}
+
 	case protocol.EventPing:
 		resp, _ := protocol.NewMessage(protocol.EventPong, map[string]int64{"time": time.Now().UnixMilli()})
 		s.Broadcast(resp)
@@ -1685,6 +1731,24 @@ func (s *SyncServer) SendCallAudioBridge(payload protocol.CallAudioBridgePayload
 	msg, err := protocol.NewMessage(protocol.EventCallAudioBridge, payload)
 	if err == nil {
 		s.Broadcast(msg)
+	}
+}
+
+func (s *SyncServer) SendAppListRequest() {
+	msg, err := protocol.NewMessage(protocol.EventAppListRequest, map[string]string{})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Uygulamalar] Uygulama listesi isteği telefona gönderildi")
+	}
+}
+
+func (s *SyncServer) SendAppLaunchRequest(packageName string) {
+	msg, err := protocol.NewMessage(protocol.EventAppLaunchRequest, protocol.AppLaunchRequestPayload{
+		PackageName: packageName,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi: %s", packageName)
 	}
 }
 
@@ -3096,6 +3160,19 @@ const dashboardHTML = `<!DOCTYPE html>
                                 <button class="btn btn-secondary" onclick="sendPhoneCmd('VOLUME_DOWN')" style="font-size:12px;">🔉 Ses Azalt</button>
                             </div>
                         </div>
+
+                        <div class="card" style="margin-top: 16px;">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                                <h3 style="font-size: 15px; font-weight: 800;">📱 Telefon Uygulamaları (App Streaming)</h3>
+                                <button class="btn btn-secondary" onclick="loadPhoneApps()" style="font-size:11px; padding: 4px 10px;">🔄 Yenile</button>
+                            </div>
+                            <input type="text" id="appSearchInput" placeholder="🔍 Uygulama ara (Instagram, WhatsApp vb.)..." oninput="filterApps()" style="width: 100%; padding: 8px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-card); background: rgba(0,0,0,0.3); color: #fff; font-size: 12px; margin-bottom: 10px;">
+                            <div id="phoneAppsList" style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; max-height: 200px; overflow-y: auto; padding-right: 4px;">
+                                <div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">
+                                    Uygulamaları listelemek için "Yenile"ye tıklayın.
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -4468,6 +4545,69 @@ const dashboardHTML = `<!DOCTYPE html>
                 isPointerDown = false;
                 sendPointerEvent('up', e);
             });
+        }
+
+        // App Streaming (Uygulama Listesi ve Başlatma)
+        let phoneInstalledApps = [];
+        async function loadPhoneApps() {
+            const listEl = document.getElementById('phoneAppsList');
+            if (listEl) listEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">Uygulamalar telefondan yükleniyor...</div>';
+            try {
+                const res = await fetch('/apps/list');
+                const data = await res.json();
+                if (data.apps && data.apps.length > 0) {
+                    phoneInstalledApps = data.apps;
+                    renderApps(phoneInstalledApps);
+                } else {
+                    setTimeout(async () => {
+                        const r2 = await fetch('/apps/list');
+                        const d2 = await r2.json();
+                        phoneInstalledApps = d2.apps || [];
+                        renderApps(phoneInstalledApps);
+                    }, 1200);
+                }
+            } catch (e) {
+                console.error('Apps load error:', e);
+            }
+        }
+
+        function renderApps(apps) {
+            const listEl = document.getElementById('phoneAppsList');
+            if (!listEl) return;
+            if (!apps || apps.length === 0) {
+                listEl.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: var(--text-muted); font-size: 12px; padding: 12px;">Henüz uygulama bulunamadı. "Yenile" butonuna tıklayın.</div>';
+                return;
+            }
+            listEl.innerHTML = apps.map(function(app) {
+                return '<button class="btn btn-secondary" onclick="launchPhoneApp(\'' + app.package_name + '\')" style="display:flex; align-items:center; gap: 6px; padding: 7px 8px; font-size: 11px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px;">' +
+                    '<span>📱</span>' +
+                    '<span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + (app.name || app.package_name) + '</span>' +
+                '</button>';
+            }).join('');
+        }
+
+        function filterApps() {
+            const query = (document.getElementById('appSearchInput')?.value || '').toLowerCase();
+            const filtered = phoneInstalledApps.filter(function(a) {
+                return a.name.toLowerCase().indexOf(query) !== -1 || a.package_name.toLowerCase().indexOf(query) !== -1;
+            });
+            renderApps(filtered);
+        }
+
+        async function launchPhoneApp(pkg) {
+            try {
+                await fetch('/apps/launch?pkg=' + encodeURIComponent(pkg));
+                if (!isScreenMirroring) {
+                    toggleScreenMirror(true);
+                }
+                const notif = document.createElement('div');
+                notif.style = 'position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
+                notif.innerText = '📱 Uygulama Başlatıldı: ' + pkg;
+                document.body.appendChild(notif);
+                setTimeout(function() { notif.remove(); }, 3000);
+            } catch (e) {
+                console.error('Launch error:', e);
+            }
         }
 
         // WebDAV Storage Mount (Z:\)

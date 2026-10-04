@@ -44,6 +44,9 @@ object ProtocolEvents {
     const val HOTSPOT_COMMAND = "hotspot_command"
     const val HOTSPOT_STATUS = "hotspot_status"
     const val CALL_AUDIO_BRIDGE = "call_audio_bridge"
+    const val APP_LIST_REQUEST = "app_list_request"
+    const val APP_LIST_RESPONSE = "app_list_response"
+    const val APP_LAUNCH_REQUEST = "app_launch_request"
     const val PING = "ping"
     const val PONG = "pong"
 }
@@ -311,6 +314,19 @@ data class CallAudioBridgePayload(
     val direction: String? = null, // PHONE_TO_PC, PC_TO_PHONE
     val data: String? = null,
     val sample_rate: Int = 16000
+)
+
+data class InstalledAppInfo(
+    val name: String,
+    val package_name: String
+)
+
+data class AppListResponsePayload(
+    val apps: List<InstalledAppInfo>
+)
+
+data class AppLaunchRequestPayload(
+    val package_name: String
 )
 
 fun Any.toSyncMessage(event: String): String {

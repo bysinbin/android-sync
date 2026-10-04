@@ -94,17 +94,22 @@ android-sync/
 
 ## 3. Özellik & Entegrasyon Durumu
 
-### ✅ Windows & Android (Tamamlandı):
-1. **Arama Yanıtlama & Reddetme:** Gelen aramaları PC'den anında kabul etme (`ANSWER`) veya reddetme (`REJECT`), ayrıca tuş takımı ile numara çevirip arama başlatma.
-2. **Arama Konuşma:** Bluetooth Eller Serbest (Handsfree/HFP) veya Hoparlör (Speakerphone) ses yönlendirme ve arama içi denetimler.
-3. **Mesajları Okuyup Mesaj Gönderme:** 2 sütunlu SMS mesajlaşma paneli, gelen/giden mesajların gerçek zamanlı senkronizasyonu ve Windows'tan SMS gönderme.
-4. **Güzel Bir Arayüz (Windows Fluent & Android Dark):** Hem Windows masaüstü web paneli hem de Android uygulaması modern koyu tema ve kart tabanlı tasarımla baştan yenilendi.
-5. **🔒 Güvenlik & 6 Haneli PIN Eşleştirme:** Yetkisiz ağ bağlantılarına karşı uçtan uca doğrulama; yeni cihazlar bağlandığında ekranda 6 haneli kod onayı istenir, kriptografik token ile güvenle eşleştirilir (`daemon_config.json`).
-6. **💻 Gelişmiş Çoklu Cihaz (Multi-PC) Yönetimi:**
-   - Telefondan bağlı Windows ve Mac bilgisayarları kartlar halinde ayrı ayrı listeleme ve durumlarını görme (🪟 Windows / 🍏 Mac simgeleriyle).
-   - Her bilgisayar için ayrı ayrı izin anahtarları: Pano Paylaşımı, Arama Yanıtlama, SMS Erişimi, Medya Kontrolü.
-   - Çapraz Pano (Mesh Forwarding) ve Tüm Cihazlarda Çaldırma yönlendirme tercihleri.
-   - Tek tıkla eşleşmeyi kaldırma (unpair) veya yeniden bağlanma.
+### ✅ Windows, macOS & Android (v1.0 Sürümü - Tamamlandı):
+1. **🎮 Canlı Ekran Yansıtma & Uzaktan Dokunma (Screen Mirroring):** Android 14+ uyumlu ekran akışı, düşük gecikmeli görüntü aktarımı, akış kalitesi seçimi (60p, 75p, 90p).
+2. **✨ %100 Kablosuz Dokunma Enjeksiyonu (Accessibility Service):** Root veya USB gerektirmeyen `SyncAccessibilityService` ile fare tıklamalarını, kaydırmalarını ve sanal Android butonlarını (Geri, Ana Ekran, Son Uygulamalar) doğrudan Wi-Fi üzerinden telefona iletme.
+3. **📱 Telefon Uygulama Akışı & Başlatıcı (App Streaming & Launcher):** Telefondaki tüm yüklü uygulamaları PC/Mac web panelinde anlık arama, listeleme ve tek tıkla canlı ekrana başlatma.
+4. **💾 Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (WebDAV - Z:\):** Telefondaki dahili hafızayı Windows Gezgini'ne `Z:\` sürücüsü olarak veya macOS Finder'a tek tıkla ağ diski olarak bağlama.
+5. **⚡ Anlık Kişisel Erişim Noktası (Instant Hotspot):** Telefonda menülerle uğraşmadan tek tıkla hücresel internet paylaşımı başlatma ve PC'nin otomatik bağlanması.
+6. **🎙️ PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free PCM Audio Bridge):** Görüşme sesinin 16kHz PCM ile bilgisayar hoparlörüne ve mikrofonuna aktarılması.
+7. **🖱️ Sanal Dokunmatik Yüzey (Touchpad) & Sunum Kumandası:** Telefon ekranını hassas bir laptop trackpad'ine veya slayt kumandasına (F5, Esc, İleri/Geri) dönüştürme.
+8. **🔐 Biyometrik Kilit Açma:** Telefonda parmak izi okutarak Windows veya macOS kilit ekranını tek dokunuşla açma.
+9. **🖼️ Görsel Panosu (Image Clipboard) & Sekme Paylaşımı:** Çift yönlü görsel kopyalama (`PNG/Bitmap`), anlık sekme/URL aktarımı ve masaüstünde otomatik tarayıcı açma.
+10. **📇 Telefon Rehberi & Fotoğraf Galerisi:** Rehber arama, tek tıkla `DIAL` arama ve SMS başlatma; 40+ fotoğrafı Lightbox ile önizleme ve indirme.
+11. **📞 Arama Yanıtlama & Reddetme:** Gelen aramaları PC'den anında kabul etme (`ANSWER`) veya reddetme (`REJECT`), numara çevirici ile arama başlatma.
+12. **💬 SMS Hub:** 2 sütunlu SMS mesajlaşma paneli, gelen/giden mesaj senkronizasyonu ve PC/Mac klavyesinden doğrudan SMS gönderme.
+13. **🎨 Modern Koyu Cam Kontrol Paneli (Glassmorphic Web Dashboard):** `http://localhost:42424` adresinde zengin, responsive ve koyu temalı masaüstü kontrol merkezi.
+14. **🔒 Uçtan Uca Güvenlik & 6 Haneli PIN Eşleştirme:** Yetkisiz ağ bağlantılarına karşı kriptografik token ve PIN doğrulama (`daemon_config.json`).
+15. **💻 Çapraz Cihaz (Mesh Clipboard) Yönetimi:** Aynı anda Windows PC, Mac ve Android cihazlar arasında çoklu cihaz mesh ağı.
 
 
 ---

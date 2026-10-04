@@ -29,7 +29,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (WebDAV - Z:\) | ✅ **Var (Tamamlandı - Z:\)** | ❌ Yok | ✅ Var |
 | | Fotoğraf Galerisi Gezgini (Photos Explorer & Lightbox) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Ekran & Uygulama** | Telefon Ekranını Yansıtma & Uzaktan Dokunma (Screen Mirroring & Touch) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
-| | Android Uygulamalarını Bağımsız Pencerede Açma | ⚠️ Gelecek Planı | ✅ Var | ❌ Yok |
+| | Android Uygulamalarını Başlatma & Akış (App Streaming & Launcher) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ✅ **Var (Tamamlandı)** | ❌ Yok | ✅ Var |
 | | Sanal Klavye (Telefondan PC'ye Tuş Gönderimi) | ✅ **Var (Tamamlandı - Hotkeys)** | ❌ Yok | ✅ Var |
 | | Sunum Kumandası (Slayt Değiştirici & Pointer) | ✅ **Var (Tamamlandı - F5/Esc/Slayt)** | ❌ Yok | ✅ Var |
@@ -74,10 +74,10 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 ---
 
 ### 4. Ekran Yansıtma ve Uygulama Akışı
-1. **Telefon Ekranını PC'de Görüntüleme & Kontrol (Phone Screen Mirroring):**
-   - Scrcpy veya WebRTC tabanlı H.264/H.265 video akışı ile telefon ekranı bir pencere olarak PC'ye aktarılır; fare tıklamaları dokunmaya, klavye girdileri telefon girişine dönüştürülür.
-2. **Bağımsız Uygulama Pencereleri (App Streaming):**
-   - Telefondaki belirli bir uygulama başlatılarak masaüstünde müstakil bir pencere içinde çalıştırılır.
+1. **Telefon Ekranını PC'de Görüntüleme & Kontrol (Phone Screen Mirroring):** *(✅ Tamamlandı)*
+   - Android `MediaProjection` tabanlı canlı ekran yakalama, MJPEG/WebSocket akışı, fare tıklamaları ve sürüklemeleriyle gecikmesiz kablosuz dokunma enjeksiyonu (`SyncAccessibilityService`).
+2. **Uygulama Başlatma & Akışı (App Streaming & Launcher):** *(✅ Tamamlandı)*
+   - Telefondaki tüm yüklü uygulamalar (`PackageManager`) taranarak PC ve Mac web paneline aktarılır; tek tıkla arama yapılıp istenen uygulama ekranda başlatılır.
 
 ---
 
@@ -138,11 +138,14 @@ graph TD
 
 ### Tamamlanan Yetenekler & Modüller:
 - **Canlı Ekran Yansıtma & Uzaktan Dokunma (Screen Mirroring & Remote Touch):** *(✅ Tamamlandı)* Android `MediaProjection` tabanlı canlı ekran yakalama, MJPEG ve WebSocket akışı; web panelinden interaktif fare tıklamaları ve dokunma hareketleri ile telefon kontrolü ve sanal gezinme tuşları (Geri, Ana Ekran, Son Uygulamalar).
+- **Kablosuz Dokunma Enjeksiyonu & Erişilebilirlik (SyncAccessibilityService):** *(✅ Tamamlandı)* Root veya USB ADB gerektirmeden, %100 Wi-Fi üzerinden Android Erişilebilirlik Servisi ile ekran dokunmaları, kaydırmaları ve sistem aksiyonları (Geri, Ana Ekran, Bildirim Çubuğu, Güç Tuşu).
+- **Android Uygulama Akışı & Başlatıcı (App Streaming & Launcher):** *(✅ Tamamlandı)* Telefondaki tüm yüklü uygulamaları PC/Mac web panelinde arama ve tek tıkla canlı ekrana başlatma desteği.
 - **Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (WebDAV - Z:\):** *(✅ Tamamlandı)* Telefonda çalışan yerleşik WebDAV sunucusu (`port 8088`) ile Windows Gezgini'ne doğrudan `Z:\` sürücüsü olarak bağlanma, doğrudan dosya okuma, yazma ve gezinme.
 - **Anlık Kişisel Erişim Noktası (Instant Hotspot):** *(✅ Tamamlandı)* Telefonda hotspot menüleriyle uğraşmadan tek tıkla hücresel internet paylaşımı başlatma ve PC'nin otomatik Wi-Fi profili oluşturup bağlanması.
 - **PC Üzerinden Sesli Telefon Görüşmesi (Hands-Free PCM Audio Bridge):** *(✅ Tamamlandı)* Görüşme sırasında telefon mikrofonunun 16kHz PCM olarak PC hoparlörüne aktarılması ve PC mikrofonunun telefona çift yönlü iletilmesiyle eller serbest çağrı deneyimi.
 - **Sanal Touchpad & Fare / Medya Kumandası:** *(✅ Tamamlandı)* Telefon ekranını hassas dokunmatik laptop trackpad'i veya slayt / sunum uzaktan kumandası olarak gecikmesiz kullanabilme.
 - **Biyometrik Kilit Açma (Biometric Unlock):** *(✅ Tamamlandı)* Android `BiometricPrompt` ile telefonun parmak izi veya yüz tanımasıyla Windows veya Mac kilidinin anında açılması.
 - **Görsel Panosu & Sekme Paylaşımı & Fotoğraf Galerisi & Rehber Entegrasyonu:** *(✅ Tamamlandı)* Çift yönlü görsel kopyalama, anlık sekme aktarımı, fotoğraf önizleme/indirme ve rehber senkronizasyonu.
+
 
 

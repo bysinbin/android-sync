@@ -67,6 +67,8 @@ class SyncWebSocketClient(
     var onStorageMountRequested: ((StorageMountRequestPayload, String) -> Unit)? = null
     var onHotspotCommandReceived: ((HotspotCommandPayload, String) -> Unit)? = null
     var onCallAudioBridgeReceived: ((CallAudioBridgePayload, String) -> Unit)? = null
+    var onAppListRequested: ((String) -> Unit)? = null
+    var onAppLaunchRequested: ((AppLaunchRequestPayload, String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -450,6 +452,23 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.APP_LIST_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        onAppListRequested?.invoke(hostKey)
+                    }
+                }
+
+                ProtocolEvents.APP_LAUNCH_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, AppLaunchRequestPayload::class.java)
+                            onAppLaunchRequested?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "APP_LAUNCH_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
                 ProtocolEvents.PONG -> {}
             }
         } catch (e: Exception) {
@@ -821,6 +840,15 @@ class SyncWebSocketClient(
 
     fun sendCallAudioBridge(payload: CallAudioBridgePayload, targetHostKey: String? = null) {
         val json = payload.toSyncMessage(ProtocolEvents.CALL_AUDIO_BRIDGE)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendAppListResponse(apps: List<InstalledAppInfo>, targetHostKey: String? = null) {
+        val json = AppListResponsePayload(apps).toSyncMessage(ProtocolEvents.APP_LIST_RESPONSE)
         if (targetHostKey != null) {
             sendMessageTo(targetHostKey, json)
         } else {

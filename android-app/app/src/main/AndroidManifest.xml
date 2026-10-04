@@ -81,6 +81,20 @@
             android:foregroundServiceType="connectedDevice|mediaProjection|microphone"
             android:exported="false" />
 
+        <!-- Uzaktan Dokunma ve Kumanda Erişilebilirlik Servisi -->
+        <service
+            android:name=".service.SyncAccessibilityService"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
         <!-- Dosya ve Pano Görsel Paylaşımı İçin FileProvider -->
         <provider
             android:name="androidx.core.content.FileProvider"

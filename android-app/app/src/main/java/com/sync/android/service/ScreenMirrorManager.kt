@@ -202,28 +202,63 @@ class ScreenMirrorManager(private val context: Context) {
             val px = (normX * metrics.widthPixels).toInt().coerceIn(0, metrics.widthPixels)
             val py = (normY * metrics.heightPixels).toInt().coerceIn(0, metrics.heightPixels)
 
+            val a11y = SyncAccessibilityService.instance
             when (action.lowercase()) {
                 "down", "tap", "click" -> {
-                    // Run input tap or click via shell / root / accessibility
-                    Thread {
-                        try {
-                            Runtime.getRuntime().exec(arrayOf("input", "tap", px.toString(), py.toString()))
-                        } catch (e: Exception) {
-                            Log.w(TAG, "input tap exec hatası: ${e.message}")
-                        }
-                    }.start()
+                    if (a11y != null && a11y.performTap(px.toFloat(), py.toFloat())) {
+                        Log.d(TAG, "Erişilebilirlik ile dokunma iletildi: ($px, $py)")
+                    } else {
+                        Thread {
+                            try {
+                                Runtime.getRuntime().exec(arrayOf("input", "tap", px.toString(), py.toString()))
+                            } catch (e: Exception) {
+                                Log.w(TAG, "input tap exec hatası: ${e.message}")
+                            }
+                        }.start()
+                    }
+                }
+                "swipe_up" -> {
+                    val startY = metrics.heightPixels * 0.75f
+                    val endY = metrics.heightPixels * 0.25f
+                    if (a11y != null && a11y.performSwipe(px.toFloat(), startY, px.toFloat(), endY, 250)) {
+                        Log.d(TAG, "Erişilebilirlik ile yukarı kaydırma iletildi")
+                    } else {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "swipe", px.toString(), startY.toInt().toString(), px.toString(), endY.toInt().toString(), "250")) }.start()
+                    }
+                }
+                "swipe_down" -> {
+                    val startY = metrics.heightPixels * 0.25f
+                    val endY = metrics.heightPixels * 0.75f
+                    if (a11y != null && a11y.performSwipe(px.toFloat(), startY, px.toFloat(), endY, 250)) {
+                        Log.d(TAG, "Erişilebilirlik ile aşağı kaydırma iletildi")
+                    } else {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "swipe", px.toString(), startY.toInt().toString(), px.toString(), endY.toInt().toString(), "250")) }.start()
+                    }
                 }
                 "back" -> {
-                    Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "4")) }.start()
+                    if (a11y == null || !a11y.performBack()) {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "4")) }.start()
+                    }
                 }
                 "home" -> {
-                    Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "3")) }.start()
+                    if (a11y == null || !a11y.performHome()) {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "3")) }.start()
+                    }
                 }
                 "recents", "app_switch" -> {
-                    Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "187")) }.start()
+                    if (a11y == null || !a11y.performRecents()) {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "187")) }.start()
+                    }
                 }
-                "power" -> {
-                    Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "26")) }.start()
+                "notifications" -> {
+                    if (a11y == null || !a11y.performNotifications()) {
+                        Thread { Runtime.getRuntime().exec(arrayOf("cmd", "statusbar", "expand-notifications")) }.start()
+                    }
+                }
+                "power", "lock" -> {
+                    if (a11y == null || !a11y.performLock()) {
+                        Thread { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "26")) }.start()
+                    }
                 }
             }
         } catch (e: Exception) {

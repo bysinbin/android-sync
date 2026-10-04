@@ -138,6 +138,8 @@ type SyncServer struct {
 	isCallAudioActive bool
 	callAudioMu       sync.RWMutex
 	lastAudioFrame    string
+	installedApps     []protocol.InstalledAppInfo
+	appsMu            sync.RWMutex
 }
 
 type TransferredFile struct {
@@ -219,6 +221,7 @@ func NewSyncServer(port int, serverName string, clipManager *macos.ClipboardMana
 		audioHub:         NewAudioHub(),
 		contacts:         make([]protocol.ContactItem, 0, 100),
 		photos:           make([]protocol.PhotoItem, 0, 50),
+		installedApps:    make([]protocol.InstalledAppInfo, 0, 100),
 	}
 	s.saveConfig()
 	return s
@@ -1082,6 +1085,192 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		w.WriteHeader(http.StatusOK)
 	})
 
+	// Screen Mirror API (Start / Stop)
+	mux.HandleFunc("/screen/mirror", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "" {
+			action = "START"
+		}
+		quality := 65
+		if qStr := r.URL.Query().Get("quality"); qStr != "" {
+			_, _ = fmt.Sscanf(qStr, "%d", &quality)
+		}
+		s.SendScreenMirrorRequest(action, quality)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Screen Touch API
+	mux.HandleFunc("/screen/touch", func(w http.ResponseWriter, r *http.Request) {
+		action := r.URL.Query().Get("action")
+		var x, y float32
+		if xStr := r.URL.Query().Get("x"); xStr != "" {
+			var x64 float64
+			_, _ = fmt.Sscanf(xStr, "%f", &x64)
+			x = float32(x64)
+		}
+		if yStr := r.URL.Query().Get("y"); yStr != "" {
+			var y64 float64
+			_, _ = fmt.Sscanf(yStr, "%f", &y64)
+			y = float32(y64)
+		}
+		s.SendScreenTouch(action, x, y)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Screen Frame API
+	mux.HandleFunc("/screen/frame", func(w http.ResponseWriter, r *http.Request) {
+		s.mirrorMu.RLock()
+		frame := s.lastMirrorFrame
+		s.mirrorMu.RUnlock()
+		if frame == nil || frame.Data == "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"available": false})
+			return
+		}
+		format := r.URL.Query().Get("format")
+		if format == "image" || format == "jpeg" {
+			data, err := base64.StdEncoding.DecodeString(frame.Data)
+			if err == nil {
+				w.Header().Set("Content-Type", "image/jpeg")
+				w.Header().Set("Cache-Control", "no-cache")
+				_, _ = w.Write(data)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"available": true,
+			"width":     frame.Width,
+			"height":    frame.Height,
+		})
+	})
+
+	// Storage Mount API (WebDAV for macOS Finder)
+	mux.HandleFunc("/storage/mount", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "UNMOUNT" || action == "STOP" {
+			_ = exec.Command("diskutil", "unmount", "/Volumes/AndroidPhone").Run()
+			s.SendStorageMountRequest("STOP")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false})
+			return
+		}
+
+		s.SendStorageMountRequest("START")
+
+		phoneIP := ""
+		s.clientsMu.RLock()
+		for conn := range s.clients {
+			addr := conn.RemoteAddr().String()
+			host, _, _ := net.SplitHostPort(addr)
+			if host != "" && host != "127.0.0.1" {
+				phoneIP = host
+				break
+			}
+		}
+		s.clientsMu.RUnlock()
+		if phoneIP == "" {
+			phoneIP = "192.168.50.118"
+		}
+
+		mountURL := fmt.Sprintf("http://%s:8088/", phoneIP)
+		_ = os.MkdirAll("/Volumes/AndroidPhone", 0755)
+		_ = exec.Command("mount_webdav", "-s", mountURL, "/Volumes/AndroidPhone").Run()
+		_ = exec.Command("open", "/Volumes/AndroidPhone").Start()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"mounted": true,
+			"url":     mountURL,
+		})
+	})
+
+	// Storage Unmount API
+	mux.HandleFunc("/storage/unmount", func(w http.ResponseWriter, r *http.Request) {
+		_ = exec.Command("diskutil", "unmount", "/Volumes/AndroidPhone").Run()
+		s.SendStorageMountRequest("STOP")
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mounted": false})
+	})
+
+	// Hotspot Toggle API
+	mux.HandleFunc("/hotspot/toggle", func(w http.ResponseWriter, r *http.Request) {
+		action := strings.ToUpper(r.URL.Query().Get("action"))
+		if action == "" {
+			s.hotspotMu.RLock()
+			st := s.lastHotspotStatus
+			s.hotspotMu.RUnlock()
+			if st != nil && st.Enabled {
+				action = "STOP"
+			} else {
+				action = "START"
+			}
+		}
+		s.SendHotspotCommand(action)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "action": action})
+	})
+
+	// Hotspot Connect API (networksetup for macOS)
+	mux.HandleFunc("/hotspot/connect", func(w http.ResponseWriter, r *http.Request) {
+		s.hotspotMu.RLock()
+		st := s.lastHotspotStatus
+		s.hotspotMu.RUnlock()
+
+		if st == nil || !st.Enabled || st.SSID == "" {
+			s.SendHotspotCommand("START")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "message": "Hotspot başlatılıyor..."})
+			return
+		}
+
+		go func(ssid, password string) {
+			_ = exec.Command("networksetup", "-setairportnetwork", "en0", ssid, password).Run()
+		}(st.SSID, st.Password)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"ssid":     st.SSID,
+			"password": st.Password,
+		})
+	})
+
+	// App List API
+	mux.HandleFunc("/apps/list", func(w http.ResponseWriter, r *http.Request) {
+		s.appsMu.RLock()
+		apps := make([]protocol.InstalledAppInfo, len(s.installedApps))
+		copy(apps, s.installedApps)
+		s.appsMu.RUnlock()
+
+		if len(apps) == 0 {
+			s.SendAppListRequest()
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": true,
+			"apps":    apps,
+			"count":   len(apps),
+		})
+	})
+
+	// App Launch API
+	mux.HandleFunc("/apps/launch", func(w http.ResponseWriter, r *http.Request) {
+		pkg := r.URL.Query().Get("pkg")
+		if pkg == "" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "pkg parameter required"})
+			return
+		}
+		s.SendAppLaunchRequest(pkg)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "pkg": pkg})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -1220,6 +1409,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.RequestSmsSync()
 				s.RequestContactsSync()
 				s.RequestPhotosSync()
+				s.SendAppListRequest()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1237,6 +1427,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				s.RequestSmsSync()
 				s.RequestContactsSync()
 				s.RequestPhotosSync()
+				s.SendAppListRequest()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1469,6 +1660,15 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			s.callAudioMu.Unlock()
 		}
 
+	case protocol.EventAppListResponse:
+		var p protocol.AppListResponsePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.appsMu.Lock()
+			s.installedApps = p.Apps
+			s.appsMu.Unlock()
+			log.Printf("[Uygulamalar] 📱 %d adet uygulama telefondan senkronize edildi", len(p.Apps))
+		}
+
 	case protocol.EventPong:
 		// Heartbeat
 	}
@@ -1565,6 +1765,24 @@ func (s *SyncServer) SendCallAudioBridge(payload protocol.CallAudioBridgePayload
 	msg, err := protocol.NewMessage(protocol.EventCallAudioBridge, payload)
 	if err == nil {
 		s.Broadcast(msg)
+	}
+}
+
+func (s *SyncServer) SendAppListRequest() {
+	msg, err := protocol.NewMessage(protocol.EventAppListRequest, map[string]string{})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Uygulamalar] Uygulama listesi isteği telefona gönderildi")
+	}
+}
+
+func (s *SyncServer) SendAppLaunchRequest(packageName string) {
+	msg, err := protocol.NewMessage(protocol.EventAppLaunchRequest, protocol.AppLaunchRequestPayload{
+		PackageName: packageName,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi: %s", packageName)
 	}
 }
 

@@ -44,6 +44,9 @@ const (
 	EventHotspotCommand       = "hotspot_command"
 	EventHotspotStatus        = "hotspot_status"
 	EventCallAudioBridge      = "call_audio_bridge"
+	EventAppListRequest       = "app_list_request"
+	EventAppListResponse      = "app_list_response"
+	EventAppLaunchRequest     = "app_launch_request"
 	EventPing                 = "ping"
 	EventPong                 = "pong"
 )
@@ -344,6 +347,22 @@ type CallAudioBridgePayload struct {
 	Direction  string `json:"direction,omitempty"` // "PHONE_TO_PC", "PC_TO_PHONE"
 	Data       string `json:"data,omitempty"`      // base64 PCM 16kHz
 	SampleRate int    `json:"sample_rate,omitempty"`
+}
+
+// InstalledAppInfo holds information about a launchable app on the phone.
+type InstalledAppInfo struct {
+	Name        string `json:"name"`
+	PackageName string `json:"package_name"`
+}
+
+// AppListResponsePayload contains the list of installed applications.
+type AppListResponsePayload struct {
+	Apps []InstalledAppInfo `json:"apps"`
+}
+
+// AppLaunchRequestPayload requests launching a specific app on the phone.
+type AppLaunchRequestPayload struct {
+	PackageName string `json:"package_name"`
 }
 
 // Helper to construct a Message with serialized payload.
