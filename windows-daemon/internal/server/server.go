@@ -66,6 +66,8 @@ type SyncServer struct {
 	sharedFilesDir   string
 	contacts         []protocol.ContactItem
 	contactsMu       sync.RWMutex
+	photos           []protocol.PhotoItem
+	photosMu         sync.RWMutex
 }
 
 type TransferredFile struct {
@@ -146,6 +148,7 @@ func NewSyncServer(port int, serverName string, clipManager *windows.ClipboardMa
 		transferredFiles: make([]TransferredFile, 0, 50),
 		sharedFilesDir:   getSharedFilesDir(),
 		contacts:         make([]protocol.ContactItem, 0, 100),
+		photos:           make([]protocol.PhotoItem, 0, 50),
 	}
 	s.saveConfig()
 	return s
@@ -288,10 +291,15 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		contactsCount := len(s.contacts)
 		s.contactsMu.RUnlock()
 
+		s.photosMu.RLock()
+		photosCount := len(s.photos)
+		s.photosMu.RUnlock()
+
 		statusResp["files_count"] = len(filesCopy)
 		statusResp["transferred_files"] = filesCopy
 		statusResp["downloads_dir"] = getDownloadsDir()
 		statusResp["contacts_count"] = contactsCount
+		statusResp["photos_count"] = photosCount
 
 		_ = json.NewEncoder(w).Encode(statusResp)
 	})
@@ -788,6 +796,52 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "url": rawURL})
 	})
 
+	// Photos List API
+	mux.HandleFunc("/photos", func(w http.ResponseWriter, r *http.Request) {
+		s.photosMu.RLock()
+		photosCopy := make([]protocol.PhotoItem, len(s.photos))
+		copy(photosCopy, s.photos)
+		s.photosMu.RUnlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"photos": photosCopy,
+			"count":  len(photosCopy),
+		})
+	})
+
+	// Photos Refresh API (Requests photos from phone)
+	mux.HandleFunc("/photos/refresh", func(w http.ResponseWriter, r *http.Request) {
+		s.RequestPhotosSync()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+
+	// Photos Download API (Requests full photo from phone to be uploaded to PC)
+	mux.HandleFunc("/photos/download", func(w http.ResponseWriter, r *http.Request) {
+		idStr := r.URL.Query().Get("id")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if i := r.FormValue("id"); i != "" {
+				idStr = i
+			}
+		}
+		if idStr == "" {
+			http.Error(w, "photo id required", http.StatusBadRequest)
+			return
+		}
+		var id int64
+		_, _ = fmt.Sscanf(idStr, "%d", &id)
+		if id <= 0 {
+			http.Error(w, "invalid photo id", http.StatusBadRequest)
+			return
+		}
+
+		s.RequestPhotoDownload(id)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "id": id})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -933,6 +987,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				log.Printf("[Güvenlik] 🔒 Yetkilendirme başarılı! (%s)", p.ClientName)
 				s.RequestSmsSync()
 				s.RequestContactsSync()
+				s.RequestPhotosSync()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -949,6 +1004,7 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 				log.Printf("[Güvenlik] 📱 Yeni eşleştirme onaylandı: %s (Token güvenle kaydedildi)", p.DeviceName)
 				s.RequestSmsSync()
 				s.RequestContactsSync()
+				s.RequestPhotosSync()
 			} else {
 				s.configMu.Lock()
 				s.isPaired = false
@@ -1109,6 +1165,15 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 			log.Printf("[Rehber] %d adet kişi telefondan başarıyla senkronize edildi", len(p.Contacts))
 		}
 
+	case protocol.EventPhotosResponse:
+		var p protocol.PhotosResponsePayload
+		if err := json.Unmarshal(msg.Payload, &p); err == nil {
+			s.photosMu.Lock()
+			s.photos = p.Photos
+			s.photosMu.Unlock()
+			log.Printf("[Galeri] %d adet fotoğraf telefondan başarıyla senkronize edildi", len(p.Photos))
+		}
+
 	case protocol.EventPing:
 		resp, _ := protocol.NewMessage(protocol.EventPong, map[string]int64{"time": time.Now().UnixMilli()})
 		s.Broadcast(resp)
@@ -1142,6 +1207,24 @@ func (s *SyncServer) RequestContactsSync() {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Rehber] Telefon rehberi senkronizasyon isteği gönderildi")
+	}
+}
+
+func (s *SyncServer) RequestPhotosSync() {
+	msg, err := protocol.NewMessage(protocol.EventPhotosRequest, map[string]any{})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Galeri] Telefon fotoğraf galerisi senkronizasyon isteği gönderildi")
+	}
+}
+
+func (s *SyncServer) RequestPhotoDownload(photoID int64) {
+	msg, err := protocol.NewMessage(protocol.EventPhotoDownloadRequest, protocol.PhotoDownloadRequestPayload{
+		ID: photoID,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Galeri] Fotoğraf indirme isteği telefona gönderildi: id=%d", photoID)
 	}
 }
 
@@ -1884,6 +1967,10 @@ const dashboardHTML = `<!DOCTYPE html>
                 <li class="nav-item" onclick="switchTab('tabsharing')">
                     <span>🌐</span> <span>Sekme Paylaşımı</span>
                 </li>
+                <li class="nav-item" onclick="switchTab('photos')">
+                    <span>📸</span> <span>Fotoğraflar</span>
+                    <span class="nav-badge" id="photosNavBadge">0</span>
+                </li>
             </ul>
 
             <div style="margin-top: auto; padding: 12px; background: rgba(255,255,255,0.03); border-radius: var(--radius-md); font-size: 11px; color: var(--text-muted); text-align: center;">
@@ -2401,6 +2488,66 @@ const dashboardHTML = `<!DOCTYPE html>
                     </div>
                 </div>
             </div>
+
+            <!-- TAB 10: Fotoğraf Galerisi -->
+            <div id="tab-photos" class="tab-content">
+                <div class="overview-grid">
+                    <div class="card col-12">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 14px;">
+                            <div>
+                                <h3 style="font-size: 18px; font-weight: 800;">📸 Telefon Fotoğraf Galerisi</h3>
+                                <div style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">
+                                    Telefonunuzdaki son fotoğrafları ve ekran görüntülerini anında görüntüleyin, PC'ye indirin veya panoya kopyalayın.
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <span class="nav-badge" id="photosHeaderBadge" style="font-size: 13px; padding: 6px 14px;">0 Fotoğraf</span>
+                                <button class="btn btn-secondary" onclick="refreshPhotos()" style="font-size: 13px; padding: 8px 16px;">🔄 Telefondan Yenile</button>
+                            </div>
+                        </div>
+
+                        <!-- Gallery Filter & Search -->
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 12px;">
+                            <div style="display: flex; gap: 8px;">
+                                <button class="btn btn-primary" id="photoFilterAll" onclick="setPhotoFilter('all')" style="font-size: 12px; padding: 6px 14px;">Tümü</button>
+                                <button class="btn btn-secondary" id="photoFilterCamera" onclick="setPhotoFilter('camera')" style="font-size: 12px; padding: 6px 14px;">📷 Kamera</button>
+                                <button class="btn btn-secondary" id="photoFilterScreenshots" onclick="setPhotoFilter('screenshots')" style="font-size: 12px; padding: 6px 14px;">📱 Ekran Görüntüleri</button>
+                            </div>
+                            <input type="text" id="photosSearchInput" class="search-input" placeholder="🔍 Dosya adıyla ara..." oninput="filterPhotos()" style="width: 250px; padding: 8px 14px; font-size: 13px;">
+                        </div>
+
+                        <!-- Photos Grid Container -->
+                        <div id="photosGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 16px; max-height: calc(100vh - 300px); overflow-y: auto; padding-right: 4px;">
+                            <div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--text-muted);">
+                                Fotoğraflar yükleniyor veya telefondan senkronize ediliyor...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Lightbox Modal for Full Photo Preview -->
+            <div id="photoLightboxModal" style="display: none; position: fixed; inset: 0; background: rgba(5, 8, 16, 0.88); backdrop-filter: blur(12px); z-index: 9999; align-items: center; justify-content: center; padding: 20px;" onclick="if(event.target===this) closePhotoLightbox()">
+                <div style="background: #111827; border: 1px solid var(--border-card); border-radius: var(--radius-lg); max-width: 900px; width: 100%; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.7);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border-card);">
+                        <div style="overflow: hidden;">
+                            <h4 id="lightboxTitle" style="font-size: 15px; font-weight: 700; color: var(--text-primary); text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">Fotoğraf Önizleme</h4>
+                            <div id="lightboxSubtitle" style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;">-</div>
+                        </div>
+                        <button class="btn btn-secondary" onclick="closePhotoLightbox()" style="padding: 6px 12px; font-size: 14px;">✕</button>
+                    </div>
+                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #030712; padding: 16px; overflow: hidden;">
+                        <img id="lightboxImage" src="" alt="Önizleme" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius-md);">
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-top: 1px solid var(--border-card); background: rgba(18, 24, 38, 0.8);">
+                        <div id="lightboxInfo" style="font-size: 12px; color: var(--text-muted);">-</div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary" id="lightboxCopyBtn" onclick="copyLightboxImage()" style="font-size: 12px; padding: 8px 14px;">📋 Panoya Kopyala</button>
+                            <button class="btn btn-primary" id="lightboxDownloadBtn" onclick="downloadLightboxPhoto()" style="font-size: 12px; padding: 8px 16px;">⬇️ PC'ye İndir</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -2418,7 +2565,7 @@ const dashboardHTML = `<!DOCTYPE html>
             const targetTab = document.getElementById('tab-' + tabId);
             if (targetTab) targetTab.classList.add('active');
 
-            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files', 'contacts', 'tabsharing'].indexOf(tabId);
+            const navIdx = ['overview', 'calls', 'sms', 'media', 'clipboard', 'notifications', 'files', 'contacts', 'tabsharing', 'photos'].indexOf(tabId);
             const navItems = document.querySelectorAll('.nav-item');
             if (navIdx >= 0 && navItems[navIdx]) navItems[navIdx].classList.add('active');
 
@@ -2431,7 +2578,8 @@ const dashboardHTML = `<!DOCTYPE html>
                 'notifications': 'Canlı Bildirimler',
                 'files': 'Wi-Fi Dosya Paylaşımı',
                 'contacts': 'Telefon Rehberi & Kişiler',
-                'tabsharing': 'Sekme & Bağlantı Paylaşımı'
+                'tabsharing': 'Sekme & Bağlantı Paylaşımı',
+                'photos': 'Fotoğraf Galerisi'
             };
             document.getElementById('pageTitle').innerText = titles[tabId] || 'Genel Bakış';
 
@@ -2441,6 +2589,8 @@ const dashboardHTML = `<!DOCTYPE html>
                 loadTransferredFiles();
             } else if (tabId === 'contacts') {
                 loadContactsList();
+            } else if (tabId === 'photos') {
+                loadPhotosList();
             }
         }
 
@@ -3317,6 +3467,160 @@ const dashboardHTML = `<!DOCTYPE html>
             }).join('');
         }
 
+        let allPhotos = [];
+        let currentPhotoFilter = 'all';
+        let activeLightboxPhoto = null;
+
+        async function loadPhotosList() {
+            try {
+                const res = await fetch('/photos');
+                const data = await res.json();
+                allPhotos = data.photos || [];
+                renderPhotos(getFilteredPhotos());
+                const badge = document.getElementById('photosNavBadge');
+                if (badge) badge.innerText = allPhotos.length;
+                const hBadge = document.getElementById('photosHeaderBadge');
+                if (hBadge) hBadge.innerText = allPhotos.length + ' Fotoğraf';
+            } catch (e) {
+                console.error('Fotoğraf listesi yükleme hatası:', e);
+            }
+        }
+
+        async function refreshPhotos() {
+            try {
+                await fetch('/photos/refresh', { method: 'POST' });
+                alert('📱 Telefona fotoğraf galerisi senkronizasyon isteği gönderildi. Birkaç saniye içinde güncellenecektir.');
+                setTimeout(loadPhotosList, 1500);
+            } catch (e) {
+                alert('Hata: ' + e.message);
+            }
+        }
+
+        function setPhotoFilter(filter) {
+            currentPhotoFilter = filter;
+            ['all', 'camera', 'screenshots'].forEach(function(f) {
+                var btn = document.getElementById('photoFilter' + f.charAt(0).toUpperCase() + f.slice(1));
+                if (btn) {
+                    btn.className = (f === filter ? 'btn btn-primary' : 'btn btn-secondary');
+                }
+            });
+            renderPhotos(getFilteredPhotos());
+        }
+
+        function getFilteredPhotos() {
+            var input = document.getElementById('photosSearchInput');
+            var query = (input ? input.value : '').toLowerCase().trim();
+            return allPhotos.filter(function(p) {
+                var name = (p.name || '').toLowerCase();
+                var matchesQuery = !query || name.includes(query);
+                if (!matchesQuery) return false;
+
+                if (currentPhotoFilter === 'camera') {
+                    return !name.includes('screenshot') && !name.includes('ekran');
+                } else if (currentPhotoFilter === 'screenshots') {
+                    return name.includes('screenshot') || name.includes('ekran');
+                }
+                return true;
+            });
+        }
+
+        function filterPhotos() {
+            renderPhotos(getFilteredPhotos());
+        }
+
+        function renderPhotos(list) {
+            const grid = document.getElementById('photosGrid');
+            if (!grid) return;
+            if (!list || list.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1 / -1; padding: 48px; text-align: center; color: var(--text-muted);">Fotoğraf bulunamadı veya arama sonucu boş.</div>';
+                return;
+            }
+
+            grid.innerHTML = list.map(function(p) {
+                var safeName = escapeHtml(p.name);
+                var dateStr = p.date ? new Date(p.date).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+                var sizeMB = (p.size / (1024 * 1024)).toFixed(1) + ' MB';
+                var thumbSrc = p.thumbnail ? ('data:image/jpeg;base64,' + p.thumbnail) : '';
+
+                var imgHtml = thumbSrc ? 
+                    '<img src="' + thumbSrc + '" alt="' + safeName + '" style="width: 100%; height: 160px; object-fit: cover; display: block; transition: transform 0.3s;">' :
+                    '<div style="width: 100%; height: 160px; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; font-size: 36px;">🖼</div>';
+
+                return '<div style="background: rgba(18, 24, 38, 0.7); border: 1px solid var(--border-card); border-radius: var(--radius-md); overflow: hidden; display: flex; flex-direction: column; transition: all 0.2s;" class="photo-card">' +
+                    '<div style="position: relative; overflow: hidden; cursor: pointer;" onclick="openPhotoLightbox(' + p.id + ')">' +
+                        imgHtml +
+                        '<div style="position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,0.85)); padding: 6px 8px; font-size: 11px; color: white; display: flex; justify-content: space-between;">' +
+                            '<span>' + dateStr + '</span>' +
+                            '<span>' + sizeMB + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; flex: 1;">' +
+                        '<div style="font-size: 12px; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="' + safeName + '">' + safeName + '</div>' +
+                        '<div style="display: flex; gap: 6px; margin-top: auto;">' +
+                            '<button class="btn btn-secondary" style="flex: 1; font-size: 11px; padding: 5px 0;" onclick="openPhotoLightbox(' + p.id + ')">🔍 Önizle</button>' +
+                            '<button class="btn btn-primary" style="flex: 1; font-size: 11px; padding: 5px 0;" onclick="downloadPhotoToPc(' + p.id + ')">⬇️ İndir</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        function openPhotoLightbox(photoId) {
+            const photo = allPhotos.find(p => p.id === photoId);
+            if (!photo) return;
+            activeLightboxPhoto = photo;
+
+            const modal = document.getElementById('photoLightboxModal');
+            const title = document.getElementById('lightboxTitle');
+            const sub = document.getElementById('lightboxSubtitle');
+            const img = document.getElementById('lightboxImage');
+            const info = document.getElementById('lightboxInfo');
+
+            title.textContent = photo.name;
+            const dateStr = photo.date ? new Date(photo.date).toLocaleString() : '';
+            const sizeMB = (photo.size / (1024 * 1024)).toFixed(2) + ' MB';
+            sub.textContent = dateStr + ' • ' + sizeMB + (photo.width ? ' • ' + photo.width + 'x' + photo.height : '');
+            info.textContent = photo.mime_type || 'image/jpeg';
+
+            if (photo.thumbnail) {
+                img.src = 'data:image/jpeg;base64,' + photo.thumbnail;
+            } else {
+                img.src = '';
+            }
+
+            modal.style.display = 'flex';
+        }
+
+        function closePhotoLightbox() {
+            const modal = document.getElementById('photoLightboxModal');
+            if (modal) modal.style.display = 'none';
+            activeLightboxPhoto = null;
+        }
+
+        async function downloadPhotoToPc(photoId) {
+            try {
+                const res = await fetch('/photos/download?id=' + photoId, { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    alert('📥 Fotoğraf telefondan talep edildi! İndirildiğinde Downloads klasörünüze kaydedilecektir.');
+                    setTimeout(loadTransferredFiles, 2000);
+                }
+            } catch (e) {
+                alert('İndirme hatası: ' + e.message);
+            }
+        }
+
+        function downloadLightboxPhoto() {
+            if (activeLightboxPhoto) {
+                downloadPhotoToPc(activeLightboxPhoto.id);
+            }
+        }
+
+        function copyLightboxImage() {
+            if (!activeLightboxPhoto) return;
+            alert('Fotoğraf adı: ' + activeLightboxPhoto.name);
+        }
+
         function escapeHtml(str) {
             return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
@@ -3332,6 +3636,7 @@ const dashboardHTML = `<!DOCTYPE html>
         loadSmsList();
         loadTransferredFiles();
         loadContactsList();
+        loadPhotosList();
         window.addEventListener('DOMContentLoaded', setupDropZone);
         setTimeout(setupDropZone, 500);
     </script>

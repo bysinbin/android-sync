@@ -40,6 +40,7 @@ class SyncForegroundService : Service() {
     private var lastLocalClipboard: String = ""
     private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
+    lateinit var photosManager: PhotosManager
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
@@ -65,6 +66,7 @@ class SyncForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        photosManager = PhotosManager(this)
         createNotificationChannel()
 
         // Acquire WakeLock and WifiLock so network never sleeps during calls or screen-off
@@ -243,6 +245,22 @@ class SyncForegroundService : Service() {
             }
             onOpenUrlReceived = { url, _ ->
                 openUrlInBrowser(url)
+            }
+            onPhotosRequestReceived = { hostKey ->
+                Thread {
+                    val photos = photosManager.fetchRecentPhotos(40)
+                    webSocketClient?.sendPhotosResponse(photos, targetHostKey = hostKey)
+                }.start()
+            }
+            onPhotoDownloadRequestReceived = { photoId, uploadUrl, hostKey ->
+                Thread {
+                    val targetUrl = uploadUrl ?: run {
+                        val host = hostKey.split(":")
+                        val ip = host[0]
+                        "http://$ip:42424/file/upload"
+                    }
+                    photosManager.uploadPhotoToHost(photoId, targetUrl)
+                }.start()
             }
         }
 

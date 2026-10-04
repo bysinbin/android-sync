@@ -29,6 +29,9 @@ object ProtocolEvents {
     const val OPEN_URL = "open_url"
     const val CONTACTS_REQUEST = "contacts_request"
     const val CONTACTS_RESPONSE = "contacts_response"
+    const val PHOTOS_REQUEST = "photos_request"
+    const val PHOTOS_RESPONSE = "photos_response"
+    const val PHOTO_DOWNLOAD_REQUEST = "photo_download_request"
     const val PING = "ping"
     const val PONG = "pong"
 }
@@ -120,6 +123,27 @@ data class ContactItem(
 
 data class ContactsResponsePayload(
     val contacts: List<ContactItem>
+)
+
+data class PhotoItem(
+    val id: Long,
+    val name: String,
+    val date: Long,
+    val size: Long,
+    val mime_type: String,
+    val width: Int = 0,
+    val height: Int = 0,
+    val thumbnail: String? = null
+)
+
+data class PhotosResponsePayload(
+    val photos: List<PhotoItem>,
+    val count: Int
+)
+
+data class PhotoDownloadRequestPayload(
+    val id: Long,
+    val upload_url: String? = null
 )
 
 data class CallStatePayload(

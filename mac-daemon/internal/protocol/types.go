@@ -29,6 +29,9 @@ const (
 	EventOpenUrl              = "open_url"
 	EventContactsRequest      = "contacts_request"
 	EventContactsResponse     = "contacts_response"
+	EventPhotosRequest        = "photos_request"
+	EventPhotosResponse       = "photos_response"
+	EventPhotoDownloadRequest = "photo_download_request"
 	EventPing                 = "ping"
 	EventPong                 = "pong"
 )
@@ -210,6 +213,30 @@ type ContactItem struct {
 // ContactsResponsePayload contains the phone's contact list.
 type ContactsResponsePayload struct {
 	Contacts []ContactItem `json:"contacts"`
+}
+
+// PhotoItem represents a photo entry from the phone gallery.
+type PhotoItem struct {
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	Date      int64  `json:"date"`
+	Size      int64  `json:"size"`
+	MimeType  string `json:"mime_type"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Thumbnail string `json:"thumbnail,omitempty"`
+}
+
+// PhotosResponsePayload contains the recent photos list from phone.
+type PhotosResponsePayload struct {
+	Photos []PhotoItem `json:"photos"`
+	Count  int         `json:"count"`
+}
+
+// PhotoDownloadRequestPayload requests downloading full-res photo from phone.
+type PhotoDownloadRequestPayload struct {
+	ID        int64  `json:"id"`
+	UploadURL string `json:"upload_url,omitempty"`
 }
 
 // Helper to construct a Message with serialized payload.

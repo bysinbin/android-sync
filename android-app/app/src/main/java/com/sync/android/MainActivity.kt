@@ -70,6 +70,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnTriggerContactsSync: Button
     private lateinit var tvContactsPermissionStatus: TextView
     private lateinit var btnGrantContacts: Button
+    private lateinit var btnTriggerPhotosSync: Button
+    private lateinit var tvPhotosPermissionStatus: TextView
+    private lateinit var btnGrantPhotos: Button
 
     private val filePickerLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetMultipleContents()
@@ -401,6 +404,9 @@ class MainActivity : AppCompatActivity() {
         btnGrantSms = findViewById(R.id.btnGrantSms)
         tvContactsPermissionStatus = findViewById(R.id.tvContactsPermissionStatus)
         btnGrantContacts = findViewById(R.id.btnGrantContacts)
+        btnTriggerPhotosSync = findViewById(R.id.btnTriggerPhotosSync)
+        tvPhotosPermissionStatus = findViewById(R.id.tvPhotosPermissionStatus)
+        btnGrantPhotos = findViewById(R.id.btnGrantPhotos)
 
         val deviceManager = PairedDeviceManager.getInstance(this)
         swMeshClipboard.isChecked = deviceManager.meshClipboardEnabled
@@ -652,6 +658,25 @@ class MainActivity : AppCompatActivity() {
 
         btnGrantContacts.setOnClickListener {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_CONTACTS), 104)
+        }
+
+        btnTriggerPhotosSync.setOnClickListener {
+            Toast.makeText(this, "Fotoğraflar taranıyor ve bilgisayarla eşitleniyor...", Toast.LENGTH_SHORT).show()
+            Thread {
+                val photos = SyncForegroundService.instance?.photosManager?.fetchRecentPhotos(40) ?: emptyList()
+                SyncForegroundService.instance?.webSocketClient?.sendPhotosResponse(photos)
+                runOnUiThread {
+                    Toast.makeText(this, "✅ ${photos.size} fotoğraf bilgisayara aktarıldı", Toast.LENGTH_SHORT).show()
+                }
+            }.start()
+        }
+
+        btnGrantPhotos.setOnClickListener {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_MEDIA_IMAGES), 105)
+            } else {
+                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE), 105)
+            }
         }
     }
 
@@ -995,6 +1020,22 @@ class MainActivity : AppCompatActivity() {
             tvContactsPermissionStatus.setTextColor(Color.parseColor("#F85149"))
             btnGrantContacts.visibility = View.VISIBLE
         }
+
+        // Photos
+        val photosGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+        }
+        if (photosGranted) {
+            tvPhotosPermissionStatus.text = "İzin Verildi 🟢"
+            tvPhotosPermissionStatus.setTextColor(Color.parseColor("#3FB950"))
+            btnGrantPhotos.visibility = View.GONE
+        } else {
+            tvPhotosPermissionStatus.text = "İzin Gerekli 🔴"
+            tvPhotosPermissionStatus.setTextColor(Color.parseColor("#F85149"))
+            btnGrantPhotos.visibility = View.VISIBLE
+        }
     }
 
     private fun requestAppPermissions() {
@@ -1006,6 +1047,11 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.RECEIVE_SMS,
             Manifest.permission.READ_CONTACTS
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+        } else {
+            permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.ANSWER_PHONE_CALLS)
         }

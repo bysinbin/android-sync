@@ -27,7 +27,7 @@ Bu belge; **Android-Sync**, **Microsoft Telefon Bağlantısı (Phone Link)** ve 
 | | Telefon Rehberi (Contacts) Entegrasyonu | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Dosya & Depolama** | Hızlı Kablosuz Dosya Transferi (Share to Device) | ✅ **Var (Tamamlandı - Çift Yönlü)** | ⚠️ Sadece Samsung/Honor | ✅ Tam |
 | | Telefon Dosya Sistemini Ağ Sürücüsü Olarak Bağlama (SFTP) | ❌ Eksik | ❌ Yok | ✅ Var |
-| | Fotoğraf Galerisi Gezgini (Photos Drag-Drop) | ❌ Eksik | ✅ Var | ❌ Yok |
+| | Fotoğraf Galerisi Gezgini (Photos Explorer & Lightbox) | ✅ **Var (Tamamlandı)** | ✅ Var | ❌ Yok |
 | **Ekran & Uygulama** | Telefon Ekranını Yansıtma (Screen Mirroring) | ❌ Eksik | ✅ Var | ❌ Yok |
 | | Android Uygulamalarını Bağımsız Pencerede Açma | ❌ Eksik | ✅ Var | ❌ Yok |
 | **Giriş & Kumanda** | Sanal Dokunmatik Yüzey (Touchpad / Fare) | ❌ Eksik | ❌ Yok | ✅ Var |

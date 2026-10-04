@@ -58,6 +58,8 @@ class SyncWebSocketClient(
     var onNotificationReplyReceived: ((payload: NotificationReplyPayload, hostKey: String) -> Unit)? = null
     var onOpenUrlReceived: ((url: String, hostKey: String) -> Unit)? = null
     var onContactsRequestReceived: ((hostKey: String) -> Unit)? = null
+    var onPhotosRequestReceived: ((hostKey: String) -> Unit)? = null
+    var onPhotoDownloadRequestReceived: ((photoId: Long, uploadUrl: String?, hostKey: String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -341,6 +343,27 @@ class SyncWebSocketClient(
                     }
                 }
 
+                ProtocolEvents.PHOTOS_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        Log.d(TAG, "[$hostName] Fotoğraf galerisi senkronizasyon isteği kabul edildi")
+                        onPhotosRequestReceived?.invoke(hostKey)
+                    } else {
+                        Log.w(TAG, "[$hostName] Yetkisiz cihaz, fotoğraf isteği reddedildi.")
+                    }
+                }
+
+                ProtocolEvents.PHOTO_DOWNLOAD_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, PhotoDownloadRequestPayload::class.java)
+                            Log.d(TAG, "[$hostName] Fotoğraf indirme isteği alındı: id=${p.id}")
+                            onPhotoDownloadRequestReceived?.invoke(p.id, p.upload_url, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "PHOTO_DOWNLOAD_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
                 ProtocolEvents.PONG -> {}
             }
         } catch (e: Exception) {
@@ -605,6 +628,16 @@ class SyncWebSocketClient(
     fun sendContactsResponse(contacts: List<ContactItem>, targetHostKey: String? = null) {
         val payload = ContactsResponsePayload(contacts = contacts)
         val json = payload.toSyncMessage(ProtocolEvents.CONTACTS_RESPONSE)
+        if (targetHostKey != null) {
+            sendMessageTo(targetHostKey, json)
+        } else {
+            broadcastMessage(json)
+        }
+    }
+
+    fun sendPhotosResponse(photos: List<PhotoItem>, targetHostKey: String? = null) {
+        val payload = PhotosResponsePayload(photos = photos, count = photos.size)
+        val json = payload.toSyncMessage(ProtocolEvents.PHOTOS_RESPONSE)
         if (targetHostKey != null) {
             sendMessageTo(targetHostKey, json)
         } else {
