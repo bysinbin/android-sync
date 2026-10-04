@@ -1218,6 +1218,53 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "pkg": pkg})
 	})
 
+	// Screen Key Input API
+	mux.HandleFunc("/screen/key", func(w http.ResponseWriter, r *http.Request) {
+		codeStr := r.URL.Query().Get("code")
+		code, _ := strconv.Atoi(codeStr)
+		if code > 0 {
+			s.SendScreenKey(code)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "code": code})
+	})
+
+	// Screen Text Input API
+	mux.HandleFunc("/screen/text", func(w http.ResponseWriter, r *http.Request) {
+		text := r.URL.Query().Get("text")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if t := r.FormValue("text"); t != "" {
+				text = t
+			}
+		}
+		if text != "" {
+			s.SendScreenText(text)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "text": text})
+	})
+
+	// Screen Dim Control API (AMOLED Black Power Saving)
+	mux.HandleFunc("/screen/dim", func(w http.ResponseWriter, r *http.Request) {
+		enabledStr := r.URL.Query().Get("enabled")
+		enabled := enabledStr == "true" || enabledStr == "1"
+		s.SendScreenDim(enabled)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": enabled})
+	})
+
+	// Phone Ringer Mode Control API
+	mux.HandleFunc("/ringer/set", func(w http.ResponseWriter, r *http.Request) {
+		mode := strings.ToUpper(r.URL.Query().Get("mode"))
+		if mode == "" {
+			mode = "NORMAL"
+		}
+		s.SendRingerCommand(mode)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mode": mode})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -1399,11 +1446,18 @@ func (s *SyncServer) processMessage(msg *protocol.Message) {
 		var p protocol.DeviceInfoPayload
 		if err := json.Unmarshal(msg.Payload, &p); err == nil {
 			s.clientsMu.Lock()
+			prevDev := s.lastDeviceInfo
 			s.lastDeviceInfo = &p
 			s.clientsMu.Unlock()
 			log.Printf("[Cihaz] 📱 %s (%s) - Pil: %%%d (Şarjda: %v)", p.DeviceName, p.Model, p.BatteryLevel, p.IsCharging)
 			if s.trayManager != nil {
 				s.trayManager.UpdateStatus(fmt.Sprintf("%s (%%%d 🔋)", p.Model, p.BatteryLevel))
+			}
+			// Akıllı Rutin: Düşük pil uyarısı (%20 ve altı, şarjda değilse)
+			if p.BatteryLevel <= 20 && !p.IsCharging {
+				if prevDev == nil || prevDev.BatteryLevel > 20 || prevDev.IsCharging {
+					_ = windows.ShowToast("⚠️ Düşük Pil Uyarısı", fmt.Sprintf("%s şarjı azaldı: %%%d. Lütfen şarja takın.", p.Model, p.BatteryLevel), "Android Sync")
+				}
 			}
 		}
 
@@ -1749,6 +1803,48 @@ func (s *SyncServer) SendAppLaunchRequest(packageName string) {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi: %s", packageName)
+	}
+}
+
+// SendScreenKey sends an Android keycode to the phone.
+func (s *SyncServer) SendScreenKey(keyCode int) {
+	msg, err := protocol.NewMessage(protocol.EventScreenKey, protocol.ScreenKeyPayload{
+		KeyCode: keyCode,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+// SendScreenText sends typed text to the active Android input field.
+func (s *SyncServer) SendScreenText(text string) {
+	msg, err := protocol.NewMessage(protocol.EventScreenText, protocol.ScreenTextPayload{
+		Text: text,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+// SendScreenDim controls AMOLED screen-off power saving during mirroring.
+func (s *SyncServer) SendScreenDim(enabled bool) {
+	msg, err := protocol.NewMessage(protocol.EventScreenDim, protocol.ScreenDimPayload{
+		Enabled: enabled,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Ekran] Ekran karartma isteği gönderildi: enabled=%v", enabled)
+	}
+}
+
+// SendRingerCommand changes phone ringer mode (NORMAL, VIBRATE, SILENT).
+func (s *SyncServer) SendRingerCommand(mode string) {
+	msg, err := protocol.NewMessage(protocol.EventRingerCommand, protocol.RingerCommandPayload{
+		Mode: mode,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Zil Sesi] Zil sesi komutu gönderildi: %s", mode)
 	}
 }
 
@@ -3102,10 +3198,20 @@ const dashboardHTML = `<!DOCTYPE html>
                     <!-- Sol: Telefon Canlı Ekranı -->
                     <div class="card" style="flex: 1; display:flex; flex-direction:column; align-items:center; justify-content:center; background: rgba(10, 14, 23, 0.95); position: relative; border-radius: var(--radius-xl); overflow: hidden; padding: 20px;">
                         
-                        <div id="phoneScreenContainer" style="width: 340px; height: 620px; background: #000; border: 4px solid #334155; border-radius: 36px; overflow: hidden; position: relative; display:flex; flex-direction:column; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.2);">
+                        <div id="phoneScreenContainer" tabindex="0" style="width: 340px; height: 620px; background: #000; border: 4px solid #334155; border-radius: 36px; overflow: hidden; position: relative; display:flex; flex-direction:column; box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.2); outline: none;">
                             <!-- Kamera Çentiği -->
                             <div style="position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 70px; height: 16px; background: #1e293b; border-radius: 99px; z-index: 20; display:flex; align-items:center; justify-content:center;">
                                 <div style="width: 8px; height: 8px; background: #0f172a; border-radius: 50%;"></div>
+                            </div>
+
+                            <!-- Canlı Klavye Rozeti -->
+                            <div id="keyboardActiveBadge" style="display:none; position:absolute; bottom: 56px; left: 50%; transform: translateX(-50%); background: rgba(14, 165, 233, 0.95); color: #fff; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 99px; z-index: 30; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); backdrop-filter: blur(4px);">⌨️ Canlı Klavye Aktif</div>
+
+                            <!-- Dosya Sürükle-Bırak Katmanı -->
+                            <div id="screenDropOverlay" style="display:none; position:absolute; inset:0; background:rgba(2, 132, 199, 0.88); z-index:50; flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center; padding:20px; pointer-events:none; backdrop-filter: blur(4px);">
+                                <div style="font-size:44px; margin-bottom:8px;">📥</div>
+                                <div style="font-size:16px; font-weight:800;">Dosyayı Telefona Gönder</div>
+                                <div style="font-size:12px; opacity:0.9; margin-top:4px;">APK, fotoğraf veya dosyaları buraya bırakın</div>
                             </div>
                             
                             <!-- Canlı Ekran Alanı -->
@@ -3133,7 +3239,7 @@ const dashboardHTML = `<!DOCTYPE html>
                         <div class="card">
                             <h3 style="font-size: 16px; font-weight: 800; margin-bottom: 12px;">🎮 Canlı Kontrol &amp; Akış</h3>
                             <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
-                                Ekran üzerindeki herhangi bir noktaya tıklayarak veya sürükleyerek telefonunuza dokunma hareketi gönderebilirsiniz.
+                                Ekran üzerindeki herhangi bir noktaya tıklayarak veya sürükleyerek telefonunuza dokunma hareketi gönderebilirsiniz. <strong>Canlı Klavye:</strong> Ekrana tıkladıktan sonra klavyenizle yazabilirsiniz.
                             </div>
                             
                             <div style="display:flex; flex-direction:column; gap:10px;">
@@ -3152,12 +3258,14 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
 
                         <div class="card">
-                            <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">⚡ Hızlı Eylemler</h3>
+                            <h3 style="font-size: 15px; font-weight: 800; margin-bottom: 12px;">⚡ Hızlı Eylemler &amp; Profil</h3>
                             <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px;">
                                 <button class="btn btn-secondary" onclick="sendScreenTouchAction('power')" style="font-size:12px;">🔒 Ekran Kilidi</button>
                                 <button class="btn btn-secondary" onclick="sendScreenTouchAction('notifications')" style="font-size:12px;">⚡ Bildirimler</button>
-                                <button class="btn btn-secondary" onclick="sendPhoneCmd('VOLUME_UP')" style="font-size:12px;">🔊 Ses Yükselt</button>
-                                <button class="btn btn-secondary" onclick="sendPhoneCmd('VOLUME_DOWN')" style="font-size:12px;">🔉 Ses Azalt</button>
+                                <button class="btn btn-secondary" id="btnDimScreen" onclick="toggleScreenDim()" style="font-size:12px;">🌙 Ekranı Karart</button>
+                                <button class="btn btn-secondary" onclick="setPhoneRinger('NORMAL')" style="font-size:12px;">🔔 Zil Açık</button>
+                                <button class="btn btn-secondary" onclick="setPhoneRinger('VIBRATE')" style="font-size:12px;">📳 Titreşim</button>
+                                <button class="btn btn-secondary" onclick="setPhoneRinger('SILENT')" style="font-size:12px;">🔕 Sessiz Mod</button>
                             </div>
                         </div>
 
@@ -4473,6 +4581,9 @@ const dashboardHTML = `<!DOCTYPE html>
                 if (placeholder) placeholder.style.display = 'none';
                 if (badge) badge.style.display = 'inline-block';
                 startMirrorPolling();
+                setupScreenTouch();
+                setupScreenKeyboard();
+                setupScreenDragAndDrop();
             } else {
                 if (btnStart) btnStart.style.display = 'block';
                 if (btnStop) btnStop.style.display = 'none';
@@ -4545,6 +4656,160 @@ const dashboardHTML = `<!DOCTYPE html>
                 isPointerDown = false;
                 sendPointerEvent('up', e);
             });
+        }
+
+        // Live Keyboard Input Injection
+        function setupScreenKeyboard() {
+            const container = document.getElementById('phoneScreenContainer');
+            const badge = document.getElementById('keyboardActiveBadge');
+            if (!container || container.dataset.kbBound) return;
+            container.dataset.kbBound = 'true';
+
+            container.addEventListener('focus', function() {
+                if (badge) badge.style.display = 'block';
+                container.style.boxShadow = '0 25px 60px rgba(0,0,0,0.8), 0 0 35px rgba(56, 189, 248, 0.6)';
+            });
+
+            container.addEventListener('blur', function() {
+                if (badge) badge.style.display = 'none';
+                container.style.boxShadow = '0 25px 60px rgba(0,0,0,0.8), 0 0 25px rgba(56, 189, 248, 0.2)';
+            });
+
+            container.addEventListener('keydown', function(e) {
+                if (!isScreenMirroring) return;
+                if (e.key === 'Backspace') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=67');
+                } else if (e.key === 'Enter') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=66');
+                } else if (e.key === 'Tab') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=61');
+                } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=111');
+                } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=19');
+                } else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=20');
+                } else if (e.key === 'ArrowLeft') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=21');
+                } else if (e.key === 'ArrowRight') {
+                    e.preventDefault();
+                    fetch('/screen/key?code=22');
+                } else if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+                    e.preventDefault();
+                    fetch('/screen/text?text=' + encodeURIComponent(e.key));
+                }
+            });
+
+            container.addEventListener('paste', function(e) {
+                e.preventDefault();
+                const text = (e.clipboardData || window.clipboardData).getData('text');
+                if (text) {
+                    fetch('/screen/text', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: 'text=' + encodeURIComponent(text)
+                    });
+                }
+            });
+        }
+
+        // Screen Mirror Drag & Drop Upload
+        function setupScreenDragAndDrop() {
+            const container = document.getElementById('phoneScreenContainer');
+            const overlay = document.getElementById('screenDropOverlay');
+            if (!container || container.dataset.dropBound) return;
+            container.dataset.dropBound = 'true';
+
+            container.addEventListener('dragover', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (overlay) overlay.style.display = 'flex';
+            });
+
+            container.addEventListener('dragleave', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (overlay && (e.target === container || e.relatedTarget === null)) overlay.style.display = 'none';
+            });
+
+            container.addEventListener('drop', async function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (overlay) overlay.style.display = 'none';
+                const files = e.dataTransfer.files;
+                if (!files || files.length === 0) return;
+
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    try {
+                        const notif = document.createElement('div');
+                        notif.style = 'position:fixed; bottom:20px; right:20px; background:#0284c7; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
+                        notif.innerText = '📤 Gönderiliyor: ' + file.name;
+                        document.body.appendChild(notif);
+
+                        const res = await fetch('/file/upload', { method: 'POST', body: formData });
+                        const data = await res.json();
+                        notif.remove();
+                        if (data.success) {
+                            const successNotif = document.createElement('div');
+                            successNotif.style = 'position:fixed; bottom:20px; right:20px; background:#10b981; color:#fff; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
+                            successNotif.innerText = '✅ Dosya Telefona Aktarıldı: ' + file.name;
+                            document.body.appendChild(successNotif);
+                            setTimeout(function() { successNotif.remove(); }, 3500);
+                        }
+                    } catch (err) {
+                        alert('Gönderim hatası: ' + err.message);
+                    }
+                }
+            });
+        }
+
+        // AMOLED Screen Dimming (Screen-Off Power Saving)
+        let isScreenDimmed = false;
+        async function toggleScreenDim() {
+            isScreenDimmed = !isScreenDimmed;
+            const btn = document.getElementById('btnDimScreen');
+            try {
+                await fetch('/screen/dim?enabled=' + isScreenDimmed);
+                if (btn) {
+                    if (isScreenDimmed) {
+                        btn.innerHTML = '☀️ Ekranı Aç';
+                        btn.style.background = 'rgba(16, 185, 129, 0.2)';
+                        btn.style.color = '#10B981';
+                        btn.style.borderColor = '#10B981';
+                    } else {
+                        btn.innerHTML = '🌙 Ekranı Karart';
+                        btn.style.background = '';
+                        btn.style.color = '';
+                        btn.style.borderColor = '';
+                    }
+                }
+            } catch (e) {
+                console.error('Screen dim error:', e);
+            }
+        }
+
+        // Phone Ringer Mode Control
+        async function setPhoneRinger(mode) {
+            try {
+                await fetch('/ringer/set?mode=' + encodeURIComponent(mode));
+                const notif = document.createElement('div');
+                notif.style = 'position:fixed; bottom:20px; right:20px; background:#38bdf8; color:#0f172a; padding:12px 20px; border-radius:10px; font-size:13px; font-weight:700; z-index:99999; box-shadow:0 10px 25px rgba(0,0,0,0.5);';
+                notif.innerText = '🔔 Telefon Ses Modu: ' + mode;
+                document.body.appendChild(notif);
+                setTimeout(function() { notif.remove(); }, 2500);
+            } catch (e) {
+                console.error('Ringer error:', e);
+            }
         }
 
         // App Streaming (Uygulama Listesi ve Başlatma)

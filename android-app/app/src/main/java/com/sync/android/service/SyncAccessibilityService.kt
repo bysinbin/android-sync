@@ -77,4 +77,78 @@ class SyncAccessibilityService : AccessibilityService() {
             false
         }
     }
+
+    /**
+     * Odaklanmış metin kutusuna doğrudan metin yazar veya shell input ile gönderir.
+     */
+    fun typeText(text: String): Boolean {
+        try {
+            val root = rootInActiveWindow
+            val focusNode = root?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+            if (focusNode != null) {
+                val current = focusNode.text?.toString() ?: ""
+                val args = android.os.Bundle().apply {
+                    putCharSequence(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                        current + text
+                    )
+                }
+                if (focusNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                    Log.d(TAG, "typeText AccessibilityNode ile yazıldı: $text")
+                    return true
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Accessibility findFocus hatası, shell fallback deneniyor", e)
+        }
+
+        // Shell fallback
+        return try {
+            val escaped = text.replace(" ", "%s").replace("\"", "\\\"").replace("&", "\\&")
+            Runtime.getRuntime().exec(arrayOf("input", "text", escaped))
+            Log.d(TAG, "typeText shell exec ile gönderildi: $text")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "typeText shell exec başarısız", e)
+            false
+        }
+    }
+
+    /**
+     * Android tuş kodu (Enter = 66, Backspace = 67, vb.) simülasyonu yapar.
+     */
+    fun sendKey(keyCode: Int): Boolean {
+        if (keyCode == 67) { // KEYCODE_DEL / Backspace
+            try {
+                val root = rootInActiveWindow
+                val focusNode = root?.findFocus(android.view.accessibility.AccessibilityNodeInfo.FOCUS_INPUT)
+                if (focusNode != null) {
+                    val current = focusNode.text?.toString() ?: ""
+                    if (current.isNotEmpty()) {
+                        val args = android.os.Bundle().apply {
+                            putCharSequence(
+                                android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
+                                current.dropLast(1)
+                            )
+                        }
+                        if (focusNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT, args)) {
+                            return true
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "sendKey Backspace node hatası", e)
+            }
+        }
+
+        // Shell fallback for keyevent
+        return try {
+            Runtime.getRuntime().exec(arrayOf("input", "keyevent", keyCode.toString()))
+            Log.d(TAG, "sendKey shell exec ile iletildi: $keyCode")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "sendKey başarısız", e)
+            false
+        }
+    }
 }

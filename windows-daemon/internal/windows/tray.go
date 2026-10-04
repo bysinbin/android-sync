@@ -1,7 +1,9 @@
 package windows
 
 import (
+	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"runtime"
 	"sync"
@@ -60,6 +62,7 @@ const (
 	CMD_SEND_CLIPBOARD = 1007
 	CMD_RESCAN         = 1008
 	CMD_EXIT           = 1009
+	CMD_OPEN_APP_MODE  = 1010
 )
 
 type WNDCLASSEXW struct {
@@ -111,6 +114,7 @@ type NOTIFYICONDATAW struct {
 
 type TrayCallbacks struct {
 	OnOpenUI        func()
+	OnOpenAppMode   func()
 	OnRingPhone     func()
 	OnStopRingPhone func()
 	OnPlayPause     func()
@@ -174,7 +178,8 @@ func wndProc(hWnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			globalTray.mu.Unlock()
 
 			statusStr, _ := syscall.UTF16PtrFromString("📱 " + status)
-			openDashStr, _ := syscall.UTF16PtrFromString("🌐 Kontrol Panelini Aç")
+			openDashStr, _ := syscall.UTF16PtrFromString("🌐 Kontrol Panelini Aç (Tarayıcı)")
+			openAppStr, _ := syscall.UTF16PtrFromString("📱 Bağımsız Pencerede Aç (App Mode)")
 			playStr, _ := syscall.UTF16PtrFromString("⏯ Telefondaki Müziği Oynat/Durdur")
 			nextStr, _ := syscall.UTF16PtrFromString("⏭ Telefonda Sonraki Şarkı")
 			ringStr, _ := syscall.UTF16PtrFromString("🔔 Telefonumu Çaldır (Bul)")
@@ -186,6 +191,7 @@ func wndProc(hWnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 			procAppendMenuW.Call(hMenu, MF_STRING|MF_GRAYED, CMD_STATUS, uintptr(unsafe.Pointer(statusStr)))
 			procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 			procAppendMenuW.Call(hMenu, MF_STRING, CMD_OPEN_DASHBOARD, uintptr(unsafe.Pointer(openDashStr)))
+			procAppendMenuW.Call(hMenu, MF_STRING, CMD_OPEN_APP_MODE, uintptr(unsafe.Pointer(openAppStr)))
 			procAppendMenuW.Call(hMenu, MF_SEPARATOR, 0, 0)
 			procAppendMenuW.Call(hMenu, MF_STRING, CMD_PLAY_PAUSE, uintptr(unsafe.Pointer(playStr)))
 			procAppendMenuW.Call(hMenu, MF_STRING, CMD_NEXT_PHONE, uintptr(unsafe.Pointer(nextStr)))
@@ -207,6 +213,10 @@ func wndProc(hWnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 		case CMD_OPEN_DASHBOARD:
 			if globalTray != nil && globalTray.callbacks.OnOpenUI != nil {
 				go globalTray.callbacks.OnOpenUI()
+			}
+		case CMD_OPEN_APP_MODE:
+			if globalTray != nil && globalTray.callbacks.OnOpenAppMode != nil {
+				go globalTray.callbacks.OnOpenAppMode()
 			}
 		case CMD_RING_PHONE:
 			if globalTray != nil && globalTray.callbacks.OnRingPhone != nil {
@@ -347,6 +357,24 @@ func OpenURL(url string) {
 	cmd := exec.Command("cmd", "/c", "start", url)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	_ = cmd.Start()
+}
+
+// OpenAppMode opens the dashboard in standalone window mode (via Edge or Chrome).
+func OpenAppMode(url string) {
+	edgePaths := []string{
+		`C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Microsoft\Edge\Application\msedge.exe`,
+		`C:\Program Files\Google\Chrome\Application\chrome.exe`,
+		`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`,
+	}
+	for _, p := range edgePaths {
+		if _, err := os.Stat(p); err == nil {
+			cmd := exec.Command(p, fmt.Sprintf("--app=%s", url), "--window-size=1280,840")
+			_ = cmd.Start()
+			return
+		}
+	}
+	OpenURL(url)
 }
 
 func (tm *TrayManager) Stop() {

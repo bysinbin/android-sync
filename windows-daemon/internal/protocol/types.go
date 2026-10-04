@@ -47,6 +47,10 @@ const (
 	EventAppListRequest       = "app_list_request"
 	EventAppListResponse      = "app_list_response"
 	EventAppLaunchRequest     = "app_launch_request"
+	EventScreenKey            = "screen_key"
+	EventScreenText           = "screen_text"
+	EventScreenDim            = "screen_dim"
+	EventRingerCommand        = "ringer_command"
 	EventPing                 = "ping"
 	EventPong                 = "pong"
 )
@@ -364,6 +368,26 @@ type AppListResponsePayload struct {
 // AppLaunchRequestPayload requests launching a specific app on the phone.
 type AppLaunchRequestPayload struct {
 	PackageName string `json:"package_name"`
+}
+
+// ScreenKeyPayload injects an Android keycode (Enter, Backspace, etc.).
+type ScreenKeyPayload struct {
+	KeyCode int `json:"key_code"`
+}
+
+// ScreenTextPayload injects typed text into the active Android input field.
+type ScreenTextPayload struct {
+	Text string `json:"text"`
+}
+
+// ScreenDimPayload controls pitch-black screen power saving during mirroring.
+type ScreenDimPayload struct {
+	Enabled bool `json:"enabled"`
+}
+
+// RingerCommandPayload sets the phone ringer mode ("NORMAL", "VIBRATE", "SILENT").
+type RingerCommandPayload struct {
+	Mode string `json:"mode"`
 }
 
 // Helper to construct a Message with serialized payload.

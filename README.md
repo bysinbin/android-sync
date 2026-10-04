@@ -110,6 +110,13 @@ android-sync/
 13. **🎨 Modern Koyu Cam Kontrol Paneli (Glassmorphic Web Dashboard):** `http://localhost:42424` adresinde zengin, responsive ve koyu temalı masaüstü kontrol merkezi.
 14. **🔒 Uçtan Uca Güvenlik & 6 Haneli PIN Eşleştirme:** Yetkisiz ağ bağlantılarına karşı kriptografik token ve PIN doğrulama (`daemon_config.json`).
 15. **💻 Çapraz Cihaz (Mesh Clipboard) Yönetimi:** Aynı anda Windows PC, Mac ve Android cihazlar arasında çoklu cihaz mesh ağı.
+16. **🖱️ Windows Sağ Tık "Telefona Gönder":** Dosya Gezgini'nde herhangi bir dosyaya veya klasöre sağ tıklayarak doğrudan telefona kablosuz gönderme (`install-context-menu.bat`).
+17. **⌨️ PC Klavyesinden Telefona Canlı Yazma:** Ekran yansıtma penceresine odaklanarak PC klavyesinden doğrudan telefonun aktif metin alanlarına yazma, Backspace, Enter ve panodan yapıştırma.
+18. **📥 Ekrana Sürükle-Bırak ile Dosya & APK Yükleme:** Canlı telefon ekranının üzerine fotoğraf veya `.apk` bırakıldığında anında telefona aktarılması ve kurulum başlatılması.
+19. **🌙 AMOLED Ekran Karartma (Screen-off Mirroring):** Yansıtma sırasında fiziksel ekranı karartarak telefonun ısınmasını engelleme ve maksimum pil tasarrufu.
+20. **🔔 Telefon Ses Profili (Ringer Mode):** PC/Mac üzerinden telefon zil sesini tek tıkla Normal, Titreşim veya Sessiz moda alma.
+21. **⚠️ Akıllı Düşük Pil Uyarısı:** Telefon şarjı %20'nin altına indiğinde masaüstünde otomatik sesli Windows bildirimi gösterme.
+22. **🖥️ Bağımsız Masaüstü Penceresi (App Mode):** `start-app-mode.bat` veya görev çubuğu menüsünden tarayıcı sekmeleri olmadan çerçevesiz yerel masaüstü uygulaması olarak çalıştırma.
 
 
 ---

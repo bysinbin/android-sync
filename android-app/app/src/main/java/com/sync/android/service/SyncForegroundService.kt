@@ -53,6 +53,7 @@ class SyncForegroundService : Service() {
     lateinit var hotspotManager: HotspotManager
     lateinit var callAudioBridgeManager: CallAudioBridgeManager
     lateinit var appLaunchManager: AppLaunchManager
+    lateinit var screenDimManager: ScreenDimManager
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
@@ -84,6 +85,7 @@ class SyncForegroundService : Service() {
         hotspotManager = HotspotManager(this)
         callAudioBridgeManager = CallAudioBridgeManager(this)
         appLaunchManager = AppLaunchManager(this)
+        screenDimManager = ScreenDimManager(this)
 
         screenMirrorManager.onFrameEncoded = { b64, w, h ->
             webSocketClient?.sendScreenMirrorFrame(ScreenMirrorFramePayload(width = w, height = h, data = b64))
@@ -443,6 +445,28 @@ class SyncForegroundService : Service() {
             }
             onAppLaunchRequested = { payload, _ ->
                 appLaunchManager.launchApp(payload.package_name)
+            }
+            onScreenKeyReceived = { payload, _ ->
+                SyncAccessibilityService.instance?.sendKey(payload.key_code)
+            }
+            onScreenTextReceived = { payload, _ ->
+                SyncAccessibilityService.instance?.typeText(payload.text)
+            }
+            onScreenDimReceived = { payload, _ ->
+                screenDimManager.setDimmed(payload.enabled)
+            }
+            onRingerCommandReceived = { payload, _ ->
+                try {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                    when (payload.mode.uppercase()) {
+                        "SILENT" -> audioManager?.ringerMode = android.media.AudioManager.RINGER_MODE_SILENT
+                        "VIBRATE" -> audioManager?.ringerMode = android.media.AudioManager.RINGER_MODE_VIBRATE
+                        "NORMAL" -> audioManager?.ringerMode = android.media.AudioManager.RINGER_MODE_NORMAL
+                    }
+                    Log.d(TAG, "Zil sesi modu ayarlandı: ${payload.mode}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Zil sesi modu ayarlanamadı: ${e.message}")
+                }
             }
         }
 

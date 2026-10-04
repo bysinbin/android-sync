@@ -69,6 +69,10 @@ class SyncWebSocketClient(
     var onCallAudioBridgeReceived: ((CallAudioBridgePayload, String) -> Unit)? = null
     var onAppListRequested: ((String) -> Unit)? = null
     var onAppLaunchRequested: ((AppLaunchRequestPayload, String) -> Unit)? = null
+    var onScreenKeyReceived: ((ScreenKeyPayload, String) -> Unit)? = null
+    var onScreenTextReceived: ((ScreenTextPayload, String) -> Unit)? = null
+    var onScreenDimReceived: ((ScreenDimPayload, String) -> Unit)? = null
+    var onRingerCommandReceived: ((RingerCommandPayload, String) -> Unit)? = null
 
     val isConnected: Boolean
         get() = hosts.values.any { it.isConnected }
@@ -465,6 +469,50 @@ class SyncWebSocketClient(
                             onAppLaunchRequested?.invoke(p, hostKey)
                         } catch (e: Exception) {
                             Log.e(TAG, "APP_LAUNCH_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.SCREEN_KEY_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, ScreenKeyPayload::class.java)
+                            onScreenKeyReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SCREEN_KEY_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.SCREEN_TEXT_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, ScreenTextPayload::class.java)
+                            onScreenTextReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SCREEN_TEXT_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.SCREEN_DIM_REQUEST -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, ScreenDimPayload::class.java)
+                            onScreenDimReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SCREEN_DIM_REQUEST parse hatası: ${e.message}")
+                        }
+                    }
+                }
+
+                ProtocolEvents.RINGER_COMMAND -> {
+                    if (host?.isAuthorized == true) {
+                        try {
+                            val p = Gson().fromJson(msg.payload, RingerCommandPayload::class.java)
+                            onRingerCommandReceived?.invoke(p, hostKey)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "RINGER_COMMAND parse hatası: ${e.message}")
                         }
                     }
                 }

@@ -1271,6 +1271,53 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "pkg": pkg})
 	})
 
+	// Screen Key Input API
+	mux.HandleFunc("/screen/key", func(w http.ResponseWriter, r *http.Request) {
+		codeStr := r.URL.Query().Get("code")
+		code, _ := strconv.Atoi(codeStr)
+		if code > 0 {
+			s.SendScreenKey(code)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "code": code})
+	})
+
+	// Screen Text Input API
+	mux.HandleFunc("/screen/text", func(w http.ResponseWriter, r *http.Request) {
+		text := r.URL.Query().Get("text")
+		if r.Method == http.MethodPost {
+			_ = r.ParseForm()
+			if t := r.FormValue("text"); t != "" {
+				text = t
+			}
+		}
+		if text != "" {
+			s.SendScreenText(text)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "text": text})
+	})
+
+	// Screen Dim Control API (AMOLED Black Power Saving)
+	mux.HandleFunc("/screen/dim", func(w http.ResponseWriter, r *http.Request) {
+		enabledStr := r.URL.Query().Get("enabled")
+		enabled := enabledStr == "true" || enabledStr == "1"
+		s.SendScreenDim(enabled)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "enabled": enabled})
+	})
+
+	// Phone Ringer Mode Control API
+	mux.HandleFunc("/ringer/set", func(w http.ResponseWriter, r *http.Request) {
+		mode := strings.ToUpper(r.URL.Query().Get("mode"))
+		if mode == "" {
+			mode = "NORMAL"
+		}
+		s.SendRingerCommand(mode)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "mode": mode})
+	})
+
 	// APK download endpoint
 	mux.HandleFunc("/download", func(w http.ResponseWriter, r *http.Request) {
 		candidates := []string{
@@ -1783,6 +1830,48 @@ func (s *SyncServer) SendAppLaunchRequest(packageName string) {
 	if err == nil {
 		s.Broadcast(msg)
 		log.Printf("[Uygulamalar] Uygulama başlatma isteği gönderildi: %s", packageName)
+	}
+}
+
+// SendScreenKey sends an Android keycode to the phone.
+func (s *SyncServer) SendScreenKey(keyCode int) {
+	msg, err := protocol.NewMessage(protocol.EventScreenKey, protocol.ScreenKeyPayload{
+		KeyCode: keyCode,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+// SendScreenText sends typed text to the active Android input field.
+func (s *SyncServer) SendScreenText(text string) {
+	msg, err := protocol.NewMessage(protocol.EventScreenText, protocol.ScreenTextPayload{
+		Text: text,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+	}
+}
+
+// SendScreenDim controls AMOLED screen-off power saving during mirroring.
+func (s *SyncServer) SendScreenDim(enabled bool) {
+	msg, err := protocol.NewMessage(protocol.EventScreenDim, protocol.ScreenDimPayload{
+		Enabled: enabled,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Ekran] Ekran karartma isteği gönderildi: enabled=%v", enabled)
+	}
+}
+
+// SendRingerCommand changes phone ringer mode (NORMAL, VIBRATE, SILENT).
+func (s *SyncServer) SendRingerCommand(mode string) {
+	msg, err := protocol.NewMessage(protocol.EventRingerCommand, protocol.RingerCommandPayload{
+		Mode: mode,
+	})
+	if err == nil {
+		s.Broadcast(msg)
+		log.Printf("[Zil Sesi] Zil sesi komutu gönderildi: %s", mode)
 	}
 }
 

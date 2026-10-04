@@ -1,13 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"log"
+	"mime/multipart"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -22,6 +27,19 @@ const (
 )
 
 func main() {
+	// 1. Komut Satırı Argümanları Kontrolü
+	for i, arg := range os.Args {
+		if (arg == "--send-file" || arg == "-send-file") && i+1 < len(os.Args) {
+			filePath := os.Args[i+1]
+			uploadFileFromCLI(filePath)
+			return
+		}
+		if arg == "--app" || arg == "--app-mode" {
+			windows.OpenAppMode(fmt.Sprintf("http://localhost:%d", defaultWSPort))
+			return
+		}
+	}
+
 	// Zaten çalışan bir servis örneği var mı kontrol et
 	if conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", defaultWSPort), 400*time.Millisecond); err == nil {
 		conn.Close()
@@ -59,6 +77,9 @@ func main() {
 	trayManager := windows.NewTrayManager(windows.TrayCallbacks{
 		OnOpenUI: func() {
 			windows.OpenURL(fmt.Sprintf("http://localhost:%d", defaultWSPort))
+		},
+		OnOpenAppMode: func() {
+			windows.OpenAppMode(fmt.Sprintf("http://localhost:%d", defaultWSPort))
 		},
 		OnRingPhone: func() {
 			if syncServer != nil {
@@ -171,6 +192,51 @@ func main() {
 	fmt.Println("\n[Bilgi] Kapatma sinyali alındı. Servisler sonlandırılıyor...")
 	trayManager.Stop()
 	cancel()
-	time.Sleep(500 * time.Millisecond)
 	fmt.Println("[Tamam] Android-Windows Sync kapatıldı.")
+}
+
+func uploadFileFromCLI(filePath string) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		fmt.Printf("❌ Dosya açılamadı: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+	if err != nil {
+		fmt.Printf("❌ Form hatası: %v\n", err)
+		return
+	}
+	_, err = io.Copy(part, file)
+	if err != nil {
+		fmt.Printf("❌ Kopyalama hatası: %v\n", err)
+		return
+	}
+	_ = writer.Close()
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://localhost:%d/file/upload", defaultWSPort), body)
+	if err != nil {
+		fmt.Printf("❌ İstek hatası: %v\n", err)
+		return
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := client.Do(req)
+	if err != nil {
+		_ = windows.ShowToast("Android Sync", "Servis çalışmıyor! Lütfen önce Android Sync servisini başlatın.", "Hata")
+		fmt.Printf("❌ Servis çalışmıyor: %v\n", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		_ = windows.ShowToast("Android Sync", filepath.Base(filePath)+" telefona başarıyla gönderildi.", "Dosya Aktarımı")
+		fmt.Printf("✅ Dosya telefona gönderildi: %s\n", filePath)
+	} else {
+		fmt.Printf("❌ Sunucu hatası: %d\n", resp.StatusCode)
+	}
 }

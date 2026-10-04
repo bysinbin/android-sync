@@ -47,6 +47,10 @@ object ProtocolEvents {
     const val APP_LIST_REQUEST = "app_list_request"
     const val APP_LIST_RESPONSE = "app_list_response"
     const val APP_LAUNCH_REQUEST = "app_launch_request"
+    const val SCREEN_KEY_REQUEST = "screen_key"
+    const val SCREEN_TEXT_REQUEST = "screen_text"
+    const val SCREEN_DIM_REQUEST = "screen_dim"
+    const val RINGER_COMMAND = "ringer_command"
     const val PING = "ping"
     const val PONG = "pong"
 }
@@ -327,6 +331,22 @@ data class AppListResponsePayload(
 
 data class AppLaunchRequestPayload(
     val package_name: String
+)
+
+data class ScreenKeyPayload(
+    val key_code: Int
+)
+
+data class ScreenTextPayload(
+    val text: String
+)
+
+data class ScreenDimPayload(
+    val enabled: Boolean
+)
+
+data class RingerCommandPayload(
+    val mode: String // NORMAL, VIBRATE, SILENT
 )
 
 fun Any.toSyncMessage(event: String): String {
