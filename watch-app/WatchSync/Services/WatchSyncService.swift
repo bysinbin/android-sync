@@ -50,7 +50,7 @@ class WatchSyncService: ObservableObject {
     }
     
     private init() {
-        let savedHost = UserDefaults.standard.string(forKey: "sync_server_host") ?? "192.168.1.100"
+        let savedHost = UserDefaults.standard.string(forKey: "sync_server_host") ?? "127.0.0.1"
         let savedPort = UserDefaults.standard.integer(forKey: "sync_server_port")
         
         self.serverHost = savedHost
