@@ -410,7 +410,15 @@ class MainActivity : AppCompatActivity() {
         updatePermissionsUI()
         updatePhoneMediaUI()
         updateTargetHostSelectors()
-        SyncForegroundService.instance?.lastMacMedia?.let { updateMediaUI(it) }
+
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val targetHost = wsClient?.connectedHosts?.find { it.key == selectedMediaHostKey }
+            ?: wsClient?.connectedHosts?.firstOrNull { it.isConnected && it.isAuthorized }
+        if (targetHost != null) {
+            selectedMediaHostKey = targetHost.key
+            val info = targetHost.lastMedia ?: MediaInfoPayload(title = "Medya Çalmıyor", artist = targetHost.name)
+            updateMediaUI(info)
+        }
     }
 
     private fun initViews() {
@@ -1073,8 +1081,12 @@ class MainActivity : AppCompatActivity() {
 
         tvMediaTrackTitle.text = title
         tvMediaTrackArtist.text = artist
-        tvMediaSourceBadge.text = if (info.is_playing) "OYNATILIYOR 🟢" else "DURAKLATILDI ⏸"
+        tvMediaSourceBadge.text = if (info.is_playing) "OYNATILIYOR 🟢" else if (info.title.isNotBlank()) "DURAKLATILDI ⏸" else "BEKLEMEDE ⚪"
         btnMediaPlayPause.text = if (info.is_playing) "⏸ Duraklat" else "▶ Oynat"
+
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val curHost = wsClient?.connectedHosts?.find { it.key == selectedMediaHostKey }
+        tvMediaSourceIcon.text = if (curHost?.os?.lowercase() == "mac") "🍏" else "🪟"
 
         currentMediaDurationMs = info.duration_ms
         currentMediaPosMs = info.position_ms
@@ -1091,6 +1103,27 @@ class MainActivity : AppCompatActivity() {
             }
             sbMediaProgress.progress = progressPercent
         }
+    }
+
+    private fun handleHostMediaUpdate(info: MediaInfoPayload, hostName: String, hostKey: String) {
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val host = wsClient?.connectedHosts?.find { it.key == hostKey }
+        if (host != null) {
+            host.lastMedia = info
+        }
+
+        // Auto-select if nothing selected yet
+        if (selectedMediaHostKey == null) {
+            selectedMediaHostKey = hostKey
+        }
+
+        // ONLY update the active player UI if the update is from the selected host!
+        if (selectedMediaHostKey == hostKey) {
+            updateMediaUI(info)
+        }
+
+        // Refresh pills in place (shows song name and play status for each PC)
+        refreshMediaPills()
     }
 
     private fun formatMs(ms: Long): String {
@@ -1151,20 +1184,9 @@ class MainActivity : AppCompatActivity() {
                 tvLastClipboard.text = text
             }
         }
-        service.onMacMediaInfoUpdate = { info ->
-            runOnUiThread {
-                updateMediaUI(info)
-            }
-        }
         service.onHostMediaInfoUpdate = { info, hostName, hostKey ->
             runOnUiThread {
-                if (selectedMediaHostKey == null || selectedMediaHostKey == hostKey) {
-                    if (selectedMediaHostKey == null) {
-                        selectedMediaHostKey = hostKey
-                    }
-                    updateMediaUI(info)
-                }
-                updateTargetHostSelectors()
+                handleHostMediaUpdate(info, hostName, hostKey)
             }
         }
         service.webSocketClient?.onPairingRequested = { host, pin ->
@@ -1291,34 +1313,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // --- 2. Media Target Selector ---
-        val curMediaHost = connectedHosts.find { it.key == selectedMediaHostKey }
-        tvMediaSelectedHost.text = if (curMediaHost != null) {
-            val icon = if (curMediaHost.os.lowercase() == "mac") "🍏" else "🪟"
-            "🎯 $icon ${curMediaHost.name} (Denetleniyor)"
-        } else {
-            "🎯 Bilgisayar Bağlı Değil"
-        }
-        llMediaTargetPills.removeAllViews()
-        if (connectedHosts.isEmpty()) {
-            val emptyTv = TextView(this).apply {
-                text = "Bağlı ve eşleşmiş bilgisayar yok"
-                textSize = 11f
-                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
-            }
-            llMediaTargetPills.addView(emptyTv)
-        } else {
-            for (host in connectedHosts) {
-                val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
-                val playingTag = if (host.lastMedia?.is_playing == true) " 🎵" else ""
-                val isSel = selectedMediaHostKey == host.key
-                llMediaTargetPills.addView(createPill("$icon ${host.name}$playingTag", isSel) {
-                    selectedMediaHostKey = host.key
-                    updateTargetHostSelectors()
-                    val info = host.lastMedia ?: MediaInfoPayload(title = "Medya Çalmıyor", artist = host.name)
-                    updateMediaUI(info)
-                })
-            }
-        }
+        refreshMediaPills()
 
         // --- 3. Clipboard & SMS Target Selector ---
         tvClipboardSelectedHost.text = if (selectedClipboardHostKey == null) {
@@ -1362,6 +1357,96 @@ class MainActivity : AppCompatActivity() {
                 selectedFilesHostKey = host.key
                 updateTargetHostSelectors()
             })
+        }
+    }
+
+    private fun refreshMediaPills() {
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val connectedHosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+
+        if (selectedMediaHostKey != null && connectedHosts.none { it.key == selectedMediaHostKey }) {
+            selectedMediaHostKey = connectedHosts.firstOrNull()?.key
+        }
+        if (selectedMediaHostKey == null && connectedHosts.isNotEmpty()) {
+            selectedMediaHostKey = connectedHosts.first().key
+        }
+
+        val curMediaHost = connectedHosts.find { it.key == selectedMediaHostKey }
+        tvMediaSelectedHost.text = if (curMediaHost != null) {
+            val icon = if (curMediaHost.os.lowercase() == "mac") "🍏" else "🪟"
+            "🎯 $icon ${curMediaHost.name} (Denetleniyor)"
+        } else {
+            "🎯 Bilgisayar Bağlı Değil"
+        }
+
+        if (connectedHosts.isEmpty()) {
+            llMediaTargetPills.removeAllViews()
+            val emptyTv = TextView(this).apply {
+                text = "Bağlı ve eşleşmiş bilgisayar yok"
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            }
+            llMediaTargetPills.addView(emptyTv)
+            return
+        }
+
+        val count = llMediaTargetPills.childCount
+        if (count != connectedHosts.size || (0 until count).any { llMediaTargetPills.getChildAt(it) !is TextView }) {
+            llMediaTargetPills.removeAllViews()
+            for (host in connectedHosts) {
+                val pill = createMediaPill(host)
+                llMediaTargetPills.addView(pill)
+            }
+        } else {
+            for ((index, host) in connectedHosts.withIndex()) {
+                val pill = llMediaTargetPills.getChildAt(index) as? TextView ?: continue
+                updateMediaPillView(pill, host)
+            }
+        }
+    }
+
+    private fun createMediaPill(host: ConnectedHost): TextView {
+        val tv = TextView(this)
+        updateMediaPillView(tv, host)
+        tv.setOnClickListener {
+            it.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            selectedMediaHostKey = host.key
+            val info = host.lastMedia ?: MediaInfoPayload(title = "Medya Çalmıyor", artist = host.name)
+            updateMediaUI(info)
+            refreshMediaPills()
+        }
+        return tv
+    }
+
+    private fun updateMediaPillView(tv: TextView, host: ConnectedHost) {
+        val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
+        val isSel = selectedMediaHostKey == host.key
+        val media = host.lastMedia
+        val playingIcon = if (media?.is_playing == true) " ▶" else if (media != null && media.title.isNotBlank()) " ⏸" else ""
+        val trackShort = if (media != null && media.title.isNotBlank()) {
+            val t = if (media.title.length > 14) media.title.substring(0, 12) + ".." else media.title
+            " • $t"
+        } else ""
+
+        val label = "$icon ${host.name}$trackShort$playingIcon"
+        tv.text = label
+        tv.layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            dpToPx(34)
+        ).apply {
+            marginEnd = dpToPx(8)
+        }
+        tv.gravity = Gravity.CENTER
+        tv.setPadding(dpToPx(14), 0, dpToPx(14), 0)
+        tv.textSize = 12f
+        tv.typeface = Typeface.DEFAULT_BOLD
+
+        if (isSel) {
+            tv.setBackgroundResource(R.drawable.tab_active_bg)
+            tv.setTextColor(ContextCompat.getColor(this, R.color.accent_blue))
+        } else {
+            tv.setBackgroundResource(R.drawable.tab_inactive_bg)
+            tv.setTextColor(ContextCompat.getColor(this, R.color.text_secondary))
         }
     }
 
