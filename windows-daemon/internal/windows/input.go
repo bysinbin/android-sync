@@ -11,16 +11,15 @@ import (
 )
 
 var (
-	procMouseEvent   = user32.NewProc("mouse_event")
-	procSetCursorPos = user32.NewProc("SetCursorPos")
+	procMouseEvent       = user32.NewProc("mouse_event")
+	procSetCursorPos     = user32.NewProc("SetCursorPos")
+	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
 
 	cursorMu    sync.Mutex
 	accumX      float64
 	accumY      float64
 	scrollAccum float64
 )
-
-
 
 const (
 	MOUSEEVENTF_MOVE       = 0x0001
@@ -31,6 +30,8 @@ const (
 	MOUSEEVENTF_MIDDLEDOWN = 0x0020
 	MOUSEEVENTF_MIDDLEUP   = 0x0040
 	MOUSEEVENTF_WHEEL      = 0x0800
+	MOUSEEVENTF_ABSOLUTE   = 0x8000
+
 
 	VK_BACK   = 0x08
 	VK_TAB    = 0x09
@@ -67,13 +68,43 @@ func HandleTouchpadEvent(p protocol.TouchpadEventPayload) {
 			var pt POINT
 			r, _, _ := procGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
 			if r != 0 {
-				// SetCursorPos is 100% reliable across RDP, virtual displays, and physical console
-				procSetCursorPos.Call(uintptr(pt.X+moveX), uintptr(pt.Y+moveY))
+				var screenWidth int32 = 1920
+				var screenHeight int32 = 1080
+				if w, _, _ := procGetSystemMetrics.Call(0); w > 0 { // SM_CXSCREEN = 0
+					screenWidth = int32(w)
+				}
+				if h, _, _ := procGetSystemMetrics.Call(1); h > 0 { // SM_CYSCREEN = 1
+					screenHeight = int32(h)
+				}
+
+				targetX := pt.X + moveX
+				targetY := pt.Y + moveY
+
+				if targetX < 0 {
+					targetX = 0
+				} else if targetX >= screenWidth {
+					targetX = screenWidth - 1
+				}
+				if targetY < 0 {
+					targetY = 0
+				} else if targetY >= screenHeight {
+					targetY = screenHeight - 1
+				}
+
+				// 1. Doğrudan Windows imleç koordinatını güncelle
+				procSetCursorPos.Call(uintptr(targetX), uintptr(targetY))
+
+				// 2. MOUSEEVENTF_MOVE | MOUSEEVENTF_ABSOLUTE göndererek RDP istemcisinin
+				// ekrandaki görünür fare okunu (cursor graphic) hareket ettirmesini sağla!
+				normX := int32((int64(targetX) * 65535) / int64(screenWidth-1))
+				normY := int32((int64(targetY) * 65535) / int64(screenHeight-1))
+				procMouseEvent.Call(MOUSEEVENTF_MOVE|MOUSEEVENTF_ABSOLUTE, uintptr(normX), uintptr(normY), 0, 0)
 			} else {
 				procMouseEvent.Call(MOUSEEVENTF_MOVE, uintptr(moveX), uintptr(moveY), 0, 0)
 			}
 		}
 		cursorMu.Unlock()
+
 
 	case "click":
 		switch strings.ToLower(p.Button) {

@@ -876,7 +876,20 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
 
+                MotionEvent.ACTION_POINTER_UP -> {
+                    val remainingPointerIndex = if (event.actionIndex == 0) 1 else 0
+                    if (event.pointerCount <= 2) {
+                        isScrolling = false
+                        try {
+                            lastTouchX = event.getX(remainingPointerIndex)
+                            lastTouchY = event.getY(remainingPointerIndex)
+                        } catch (e: Exception) {}
+                    }
+                    true
+                }
+
                 MotionEvent.ACTION_UP -> {
+                    isScrolling = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     val duration = System.currentTimeMillis() - touchDownTime
                     val dist = Math.hypot((event.x - touchDownX).toDouble(), (event.y - touchDownY).toDouble())
@@ -892,9 +905,11 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
+                    isScrolling = false
                     view.parent?.requestDisallowInterceptTouchEvent(false)
                     true
                 }
+
                 else -> false
             }
         }
