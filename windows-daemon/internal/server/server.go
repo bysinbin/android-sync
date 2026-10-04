@@ -52,10 +52,10 @@ type ClientDevice struct {
 	LastSeen     int64                               `json:"last_seen"`
 	Media        *protocol.MediaInfoPayload          `json:"media,omitempty"`
 	CallState    *protocol.CallStatePayload          `json:"call_state,omitempty"`
-	SmsList      []protocol.SmsMessage               `json:"sms_list,omitempty"`
-	Contacts     []protocol.ContactItem              `json:"contacts,omitempty"`
-	Photos       []protocol.PhotoItem                `json:"photos,omitempty"`
-	Apps         []protocol.InstalledAppInfo         `json:"apps,omitempty"`
+	SmsList      []protocol.SmsMessage               `json:"-"`
+	Contacts     []protocol.ContactItem              `json:"-"`
+	Photos       []protocol.PhotoItem                `json:"-"`
+	Apps         []protocol.InstalledAppInfo         `json:"-"`
 	LastFrame    *protocol.ScreenMirrorFramePayload  `json:"-"`
 	Storage      *protocol.StorageMountStatusPayload `json:"storage,omitempty"`
 	Hotspot      *protocol.HotspotStatusPayload      `json:"hotspot,omitempty"`
@@ -3990,7 +3990,22 @@ const dashboardHTML = `<!DOCTYPE html>
                         </div>
                         <button class="btn btn-secondary" onclick="closePhotoLightbox()" style="padding: 6px 12px; font-size: 14px;">✕</button>
                     </div>
-                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #0307    <script>
+                    <div style="flex: 1; display: flex; align-items: center; justify-content: center; background: #030712; padding: 16px; overflow: hidden;">
+                        <img id="lightboxImage" src="" alt="Önizleme" style="max-width: 100%; max-height: 60vh; object-fit: contain; border-radius: var(--radius-md);">
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 20px; border-top: 1px solid var(--border-card); background: rgba(18, 24, 38, 0.8);">
+                        <div id="lightboxInfo" style="font-size: 12px; color: var(--text-muted);">-</div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-secondary" id="lightboxCopyBtn" onclick="copyLightboxImage()" style="font-size: 12px; padding: 8px 14px;">📋 Panoya Kopyala</button>
+                            <button class="btn btn-primary" id="lightboxDownloadBtn" onclick="downloadLightboxPhoto()" style="font-size: 12px; padding: 8px 16px;">⬇️ PC'ye İndir</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
         let allSmsMessages = [];
         let activeThreadAddress = null;
         let isPhoneRinging = false;
@@ -4289,20 +4304,17 @@ const dashboardHTML = `<!DOCTYPE html>
                 const res = await fetch('/status');
                 const data = await res.json();
 
-                // Multi-device sync
-                updateDeviceSelectors(data.devices || []);
-                renderOverviewDevicesGrid(data.devices || []);
-                renderMultiDeviceMedia(data.devices || []);
-
-                // Status Pill
+                // 1. Status Pill & Pairing first!
                 const badge = document.getElementById('statusBadge');
                 const badgeText = document.getElementById('statusText');
-                if (data.connected) {
-                    badge.className = 'status-pill';
-                    badgeText.innerText = (data.clients_count > 1 ? data.clients_count + ' Cihaz Bağlandı 🟢' : 'Bağlandı 🟢');
-                } else {
-                    badge.className = 'status-pill disconnected';
-                    badgeText.innerText = 'Cihaz Aranıyor 🟡';
+                if (badge && badgeText) {
+                    if (data.connected) {
+                        badge.className = 'status-pill';
+                        badgeText.innerText = (data.clients_count > 1 ? data.clients_count + ' Cihaz Bağlandı 🟢' : 'Bağlandı 🟢');
+                    } else {
+                        badge.className = 'status-pill disconnected';
+                        badgeText.innerText = 'Cihaz Aranıyor 🟡';
+                    }
                 }
 
                 // Pairing Status
@@ -4310,19 +4322,32 @@ const dashboardHTML = `<!DOCTYPE html>
                 const pText = document.getElementById('pairingText');
                 const pBanner = document.getElementById('pairingBanner');
                 const pPin = document.getElementById('bannerPairingPin');
-                if (data.is_paired) {
-                    pBadge.className = 'status-pill';
-                    pText.innerText = '🔒 Güvenli (Eşleşti)';
-                    pBanner.style.display = 'none';
-                } else {
-                    pBadge.className = 'status-pill disconnected';
-                    pText.innerText = '⚠️ Eşleşme Bekleniyor';
-                    if (data.connected) {
-                        pBanner.style.display = 'flex';
-                        pPin.innerText = (data.pairing_pin || '--- ---');
+                if (pBadge && pText) {
+                    if (data.is_paired) {
+                        pBadge.className = 'status-pill';
+                        pText.innerText = '🔒 Güvenli (Eşleşti)';
+                        if (pBanner) pBanner.style.display = 'none';
                     } else {
-                        pBanner.style.display = 'none';
+                        pBadge.className = 'status-pill disconnected';
+                        pText.innerText = '⚠️ Eşleşme Bekleniyor';
+                        if (pBanner) {
+                            if (data.connected) {
+                                pBanner.style.display = 'flex';
+                                if (pPin) pPin.innerText = (data.pairing_pin || '--- ---');
+                            } else {
+                                pBanner.style.display = 'none';
+                            }
+                        }
                     }
+                }
+
+                // Multi-device sync (safely wrapped)
+                try {
+                    updateDeviceSelectors(data.devices || []);
+                    renderOverviewDevicesGrid(data.devices || []);
+                    renderMultiDeviceMedia(data.devices || []);
+                } catch (devErr) {
+                    console.warn('Cihaz arayüz güncelleme uyarısı:', devErr);
                 }
 
                 // Contacts Count

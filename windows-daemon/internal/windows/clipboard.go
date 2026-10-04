@@ -50,23 +50,25 @@ type ClipItem struct {
 }
 
 type ClipboardManager struct {
-	mu            sync.Mutex
-	lastKnownText string
-	lastImageLen  int
-	lastSeqNum    uintptr
+	mu             sync.Mutex
+	lastKnownText  string
+	lastImageBytes []byte
+	lastSeqNum     uintptr
 }
 
 func NewClipboardManager() *ClipboardManager {
 	cm := &ClipboardManager{}
-	initial, _ := cm.GetClipboard()
+	initial, _ := cm.readOSClipboardText()
 	cm.lastKnownText = initial
+	initialImg, _ := cm.readOSClipboardImage()
+	cm.lastImageBytes = initialImg
 	seq, _, _ := procGetClipboardSeqNum.Call()
 	cm.lastSeqNum = seq
 	return cm
 }
 
-// GetClipboard reads the current Unicode text from the Windows clipboard.
-func (cm *ClipboardManager) GetClipboard() (string, error) {
+// readOSClipboardText reads the current Unicode text directly from the Windows clipboard.
+func (cm *ClipboardManager) readOSClipboardText() (string, error) {
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		r, _, err := procOpenClipboard.Call(0)
@@ -93,8 +95,8 @@ func (cm *ClipboardManager) GetClipboard() (string, error) {
 	return "", fmt.Errorf("panoya erişilemedi: %w", lastErr)
 }
 
-// GetClipboardImage reads raw PNG bytes from Windows clipboard if available.
-func (cm *ClipboardManager) GetClipboardImage() ([]byte, error) {
+// readOSClipboardImage reads raw PNG bytes directly from Windows clipboard if available.
+func (cm *ClipboardManager) readOSClipboardImage() ([]byte, error) {
 	if cfPNG == 0 {
 		return nil, fmt.Errorf("PNG formatı desteklenmiyor")
 	}
@@ -135,10 +137,30 @@ func (cm *ClipboardManager) GetClipboardImage() ([]byte, error) {
 	return nil, fmt.Errorf("panoya erişilemedi")
 }
 
+// GetClipboard returns cached Unicode text without Win32 lock contention.
+func (cm *ClipboardManager) GetClipboard() (string, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	return cm.lastKnownText, nil
+}
+
+// GetClipboardImage returns cached PNG image bytes without Win32 lock contention.
+func (cm *ClipboardManager) GetClipboardImage() ([]byte, error) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if len(cm.lastImageBytes) == 0 {
+		return nil, fmt.Errorf("panoda PNG görseli yok")
+	}
+	cp := make([]byte, len(cm.lastImageBytes))
+	copy(cp, cm.lastImageBytes)
+	return cp, nil
+}
+
 // SetClipboard writes Unicode text to the Windows clipboard.
 func (cm *ClipboardManager) SetClipboard(text string) error {
 	cm.mu.Lock()
 	cm.lastKnownText = text
+	cm.lastImageBytes = nil
 	cm.mu.Unlock()
 
 	utf16Chars, err := syscall.UTF16FromString(text)
@@ -192,7 +214,8 @@ func (cm *ClipboardManager) SetClipboardImage(pngBytes []byte) error {
 	}
 
 	cm.mu.Lock()
-	cm.lastImageLen = len(pngBytes)
+	cm.lastImageBytes = pngBytes
+	cm.lastKnownText = ""
 	cm.mu.Unlock()
 
 	for attempt := 0; attempt < 3; attempt++ {
@@ -251,13 +274,12 @@ func (cm *ClipboardManager) StartWatcher(ctx context.Context, onChange func(item
 
 			// 1. Önce panoda bir görsel (PNG) olup olmadığını kontrol et
 			if cfPNG != 0 {
-				imgBytes, err := cm.GetClipboardImage()
+				imgBytes, err := cm.readOSClipboardImage()
 				if err == nil && len(imgBytes) > 0 {
 					cm.mu.Lock()
-					isSame := len(imgBytes) == cm.lastImageLen
-					if !isSame {
-						cm.lastImageLen = len(imgBytes)
-					}
+					isSame := len(imgBytes) == len(cm.lastImageBytes)
+					cm.lastImageBytes = imgBytes
+					cm.lastKnownText = ""
 					cm.mu.Unlock()
 
 					if !isSame {
@@ -273,7 +295,7 @@ func (cm *ClipboardManager) StartWatcher(ctx context.Context, onChange func(item
 			}
 
 			// 2. Görsel yoksa metin kontrolü yap
-			current, err := cm.GetClipboard()
+			current, err := cm.readOSClipboardText()
 			if err != nil || current == "" {
 				continue
 			}
@@ -281,6 +303,7 @@ func (cm *ClipboardManager) StartWatcher(ctx context.Context, onChange func(item
 			cm.mu.Lock()
 			if current != cm.lastKnownText {
 				cm.lastKnownText = current
+				cm.lastImageBytes = nil
 				cm.mu.Unlock()
 				onChange(ClipItem{
 					Type: "text",
