@@ -720,9 +720,20 @@ class SyncWebSocketClient(
     }
 
 
-    fun sendClipboard(payload: ClipboardPayload, excludeHostKey: String? = null) {
+    fun sendClipboard(payload: ClipboardPayload, excludeHostKey: String? = null, targetHostKey: String? = null) {
         val manager = PairedDeviceManager.getInstance(context)
         val json = payload.toSyncMessage(ProtocolEvents.CLIPBOARD)
+
+        if (targetHostKey != null) {
+            val host = hosts[targetHostKey]
+            if (host != null && host.isConnected && host.isAuthorized) {
+                val config = manager.getDevice(host.clientId)
+                if (config == null || config.allowClipboard) {
+                    host.webSocket?.send(json)
+                }
+            }
+            return
+        }
 
         for ((key, host) in hosts) {
             if (excludeHostKey != null && key == excludeHostKey) continue
@@ -734,18 +745,19 @@ class SyncWebSocketClient(
         }
     }
 
-    fun sendClipboard(text: String, excludeHostKey: String? = null) {
+    fun sendClipboard(text: String, excludeHostKey: String? = null, targetHostKey: String? = null) {
         sendClipboard(
             ClipboardPayload(
                 text = text,
                 type = "text",
                 timestamp = System.currentTimeMillis()
             ),
-            excludeHostKey
+            excludeHostKey,
+            targetHostKey
         )
     }
 
-    fun sendClipboardImage(imageBase64: String, mimeType: String = "image/png", excludeHostKey: String? = null) {
+    fun sendClipboardImage(imageBase64: String, mimeType: String = "image/png", excludeHostKey: String? = null, targetHostKey: String? = null) {
         sendClipboard(
             ClipboardPayload(
                 type = "image",
@@ -753,7 +765,8 @@ class SyncWebSocketClient(
                 mime_type = mimeType,
                 timestamp = System.currentTimeMillis()
             ),
-            excludeHostKey
+            excludeHostKey,
+            targetHostKey
         )
     }
 

@@ -7,11 +7,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.Button
@@ -232,6 +234,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSmsPermissionStatus: TextView
     private lateinit var btnGrantSms: Button
 
+    // Multi-Host Target Selector Views
+    private lateinit var tvTouchpadSelectedHost: TextView
+    private lateinit var llTouchpadTargetPills: LinearLayout
+    private lateinit var tvMediaSelectedHost: TextView
+    private lateinit var llMediaTargetPills: LinearLayout
+    private lateinit var tvClipboardSelectedHost: TextView
+    private lateinit var llClipboardTargetPills: LinearLayout
+    private lateinit var tvFilesSelectedHost: TextView
+    private lateinit var llFilesTargetPills: LinearLayout
+
+    // Multi-Host Target Selection State (null = All/Broadcast)
+    private var selectedTouchpadHostKey: String? = null
+    private var selectedMediaHostKey: String? = null
+    private var selectedClipboardHostKey: String? = null
+    private var selectedFilesHostKey: String? = null
+
     private val mainHandler = Handler(Looper.getMainLooper())
     private var activePairingDialog: AlertDialog? = null
 
@@ -330,28 +348,39 @@ class MainActivity : AppCompatActivity() {
             url = "https://$url"
         }
         val wsClient = SyncForegroundService.instance?.webSocketClient
-        val hosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
-        if (hosts.isEmpty()) {
-            Toast.makeText(this, "⚠️ Bağlantı göndermek için bağlı ve eşleşmiş bir bilgisayar bulunamadı!", Toast.LENGTH_LONG).show()
+        val allHosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+        val targetHosts = if (selectedFilesHostKey != null) {
+            allHosts.filter { it.key == selectedFilesHostKey }
+        } else {
+            allHosts
+        }
+        if (targetHosts.isEmpty()) {
+            Toast.makeText(this, "⚠️ Bağlantı göndermek için hedef bilgisayar bağlı değil!", Toast.LENGTH_LONG).show()
             return
         }
-        wsClient?.sendOpenUrl(url)
-        val names = hosts.map { it.name }.joinToString(", ")
+        wsClient?.sendOpenUrl(url, targetHostKey = selectedFilesHostKey)
+        val names = targetHosts.map { it.name }.joinToString(", ")
         Toast.makeText(this, "🌐 Bağlantı bilgisayarda açılıyor: $names", Toast.LENGTH_SHORT).show()
     }
 
     private fun sendFilesToConnectedHosts(uris: List<Uri>) {
         val wsClient = SyncForegroundService.instance?.webSocketClient
-        val hosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
-        if (hosts.isEmpty()) {
-            Toast.makeText(this, "⚠️ Dosya göndermek için bağlı ve eşleşmiş bir bilgisayar bulunamadı!", Toast.LENGTH_LONG).show()
-            tvFileTransferStatus.text = "⚠️ Aktarım başarısız: Bağlı ve eşleşmiş bilgisayar yok."
+        val allHosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+        val targetHosts = if (selectedFilesHostKey != null) {
+            allHosts.filter { it.key == selectedFilesHostKey }
+        } else {
+            allHosts
+        }
+        if (targetHosts.isEmpty()) {
+            Toast.makeText(this, "⚠️ Dosya göndermek için hedef bilgisayar bağlı değil!", Toast.LENGTH_LONG).show()
+            tvFileTransferStatus.text = "⚠️ Aktarım başarısız: Hedef bilgisayar bağlı değil."
             return
         }
 
-        tvFileTransferStatus.text = "⏳ ${uris.size} dosya aktarılıyor..."
+        val targetDesc = if (selectedFilesHostKey != null) targetHosts.first().name else "Tüm Bilgisayarlar (${targetHosts.size})"
+        tvFileTransferStatus.text = "⏳ ${uris.size} dosya aktarılıyor -> $targetDesc..."
         for (uri in uris) {
-            for (host in hosts) {
+            for (host in targetHosts) {
                 val serverUrl = "http://${host.ip}:${host.port}"
                 FileManager.uploadFile(this, uri, serverUrl) { success, err ->
                     runOnUiThread {
@@ -380,6 +409,7 @@ class MainActivity : AppCompatActivity() {
         refreshDevicesUI()
         updatePermissionsUI()
         updatePhoneMediaUI()
+        updateTargetHostSelectors()
         SyncForegroundService.instance?.lastMacMedia?.let { updateMediaUI(it) }
     }
 
@@ -491,6 +521,16 @@ class MainActivity : AppCompatActivity() {
         tvPhotosPermissionStatus = findViewById(R.id.tvPhotosPermissionStatus)
         btnGrantPhotos = findViewById(R.id.btnGrantPhotos)
 
+        // Multi-Host Target Selector views
+        tvTouchpadSelectedHost = findViewById(R.id.tvTouchpadSelectedHost)
+        llTouchpadTargetPills = findViewById(R.id.llTouchpadTargetPills)
+        tvMediaSelectedHost = findViewById(R.id.tvMediaSelectedHost)
+        llMediaTargetPills = findViewById(R.id.llMediaTargetPills)
+        tvClipboardSelectedHost = findViewById(R.id.tvClipboardSelectedHost)
+        llClipboardTargetPills = findViewById(R.id.llClipboardTargetPills)
+        tvFilesSelectedHost = findViewById(R.id.tvFilesSelectedHost)
+        llFilesTargetPills = findViewById(R.id.llFilesTargetPills)
+
         val deviceManager = PairedDeviceManager.getInstance(this)
         swMeshClipboard.isChecked = deviceManager.meshClipboardEnabled
         swRingAllDevices.isChecked = deviceManager.ringAllDevicesOnCall
@@ -571,35 +611,35 @@ class MainActivity : AppCompatActivity() {
 
         // Media Panel Controls
         btnMediaRewind15.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("SEEK_BACKWARD")
+            SyncForegroundService.instance?.sendMediaCommand("SEEK_BACKWARD", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaForward15.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("SEEK_FORWARD")
+            SyncForegroundService.instance?.sendMediaCommand("SEEK_FORWARD", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaPlayPause.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("PLAY_PAUSE")
+            SyncForegroundService.instance?.sendMediaCommand("PLAY_PAUSE", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaPrev.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("PREV")
+            SyncForegroundService.instance?.sendMediaCommand("PREV", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaNext.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("NEXT")
+            SyncForegroundService.instance?.sendMediaCommand("NEXT", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaVolUp.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("VOL_UP")
+            SyncForegroundService.instance?.sendMediaCommand("VOL_UP", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaVolDown.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("VOL_DOWN")
+            SyncForegroundService.instance?.sendMediaCommand("VOL_DOWN", targetHostKey = selectedMediaHostKey)
         }
 
         btnMediaMute.setOnClickListener {
-            SyncForegroundService.instance?.sendMediaCommand("MUTE")
+            SyncForegroundService.instance?.sendMediaCommand("MUTE", targetHostKey = selectedMediaHostKey)
         }
 
         btnFindPhoneTest.setOnClickListener {
@@ -676,7 +716,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 val progress = seekBar?.progress ?: 0
                 val percent = progress.toDouble().coerceIn(0.0, 100.0)
-                SyncForegroundService.instance?.sendMediaCommand("SEEK_PERCENT", percent)
+                SyncForegroundService.instance?.sendMediaCommand("SEEK_PERCENT", percent, targetHostKey = selectedMediaHostKey)
                 isUserSeeking = false
             }
         })
@@ -687,24 +727,27 @@ class MainActivity : AppCompatActivity() {
             val textToSend = if (userText.isNotEmpty()) userText else "AndroidSync Test Metni [${System.currentTimeMillis() % 10000}]"
             val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
             cm?.setPrimaryClip(ClipData.newPlainText("AndroidSync", textToSend))
-            SyncForegroundService.instance?.webSocketClient?.sendClipboard(textToSend)
+            SyncForegroundService.instance?.webSocketClient?.sendClipboard(textToSend, targetHostKey = selectedClipboardHostKey)
             tvLastClipboard.text = textToSend
             etCustomClipInput.setText("")
-            Toast.makeText(this, "Pano metni bilgisayarlara iletildi!", Toast.LENGTH_SHORT).show()
+            val targetName = getHostDisplayName(selectedClipboardHostKey)
+            Toast.makeText(this, "Pano metni $targetName iletildi!", Toast.LENGTH_SHORT).show()
         }
 
         btnTriggerSmsSync.setOnClickListener {
-            Toast.makeText(this, "SMS mesajları bilgisayara eşitleniyor...", Toast.LENGTH_SHORT).show()
+            val targetName = getHostDisplayName(selectedClipboardHostKey)
+            Toast.makeText(this, "SMS mesajları $targetName ile eşitleniyor...", Toast.LENGTH_SHORT).show()
             val msgs = SmsSyncManager.fetchRecentMessages(this, 100)
-            SyncForegroundService.instance?.webSocketClient?.sendSmsSyncResponse(msgs)
-            Toast.makeText(this, "✅ ${msgs.size} SMS mesajı senkronize edildi", Toast.LENGTH_SHORT).show()
+            SyncForegroundService.instance?.webSocketClient?.sendSmsSyncResponse(msgs, targetHostKey = selectedClipboardHostKey)
+            Toast.makeText(this, "✅ ${msgs.size} SMS mesajı senkronize edildi ($targetName)", Toast.LENGTH_SHORT).show()
         }
 
         btnTriggerContactsSync.setOnClickListener {
-            Toast.makeText(this, "Rehber bilgisayarla eşitleniyor...", Toast.LENGTH_SHORT).show()
+            val targetName = getHostDisplayName(selectedClipboardHostKey)
+            Toast.makeText(this, "Rehber $targetName ile eşitleniyor...", Toast.LENGTH_SHORT).show()
             val contacts = ContactsManager.fetchContacts(this)
-            SyncForegroundService.instance?.webSocketClient?.sendContactsResponse(contacts)
-            Toast.makeText(this, "✅ ${contacts.size} kişi senkronize edildi", Toast.LENGTH_SHORT).show()
+            SyncForegroundService.instance?.webSocketClient?.sendContactsResponse(contacts, targetHostKey = selectedClipboardHostKey)
+            Toast.makeText(this, "✅ ${contacts.size} kişi senkronize edildi ($targetName)", Toast.LENGTH_SHORT).show()
         }
 
         btnSendUrlToPC.setOnClickListener {
@@ -748,12 +791,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnTriggerPhotosSync.setOnClickListener {
-            Toast.makeText(this, "Fotoğraflar taranıyor ve bilgisayarla eşitleniyor...", Toast.LENGTH_SHORT).show()
+            val targetName = getHostDisplayName(selectedFilesHostKey)
+            Toast.makeText(this, "Fotoğraflar taranıyor ve $targetName ile eşitleniyor...", Toast.LENGTH_SHORT).show()
             Thread {
                 val photos = SyncForegroundService.instance?.photosManager?.fetchRecentPhotos(40) ?: emptyList()
-                SyncForegroundService.instance?.webSocketClient?.sendPhotosResponse(photos)
+                SyncForegroundService.instance?.webSocketClient?.sendPhotosResponse(photos, targetHostKey = selectedFilesHostKey)
                 runOnUiThread {
-                    Toast.makeText(this, "✅ ${photos.size} fotoğraf bilgisayara aktarıldı", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✅ ${photos.size} fotoğraf $targetName aktarıldı", Toast.LENGTH_SHORT).show()
                 }
             }.start()
         }
@@ -956,22 +1000,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun sendTouchpadMove(dx: Float, dy: Float) {
         val payload = TouchpadEventPayload(type = "move", dx = dx, dy = dy)
-        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload, targetHostKey = selectedTouchpadHostKey)
     }
 
     private fun sendTouchpadClick(button: String) {
         val payload = TouchpadEventPayload(type = "click", button = button)
-        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload, targetHostKey = selectedTouchpadHostKey)
     }
 
     private fun sendTouchpadScroll(scrollY: Int) {
         val payload = TouchpadEventPayload(type = "scroll", scroll_y = scrollY)
-        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload, targetHostKey = selectedTouchpadHostKey)
     }
 
     private fun sendTouchpadKey(key: String) {
         val payload = TouchpadEventPayload(type = "key", key = key)
-        SyncForegroundService.instance?.sendTouchpadEvent(payload)
+        SyncForegroundService.instance?.sendTouchpadEvent(payload, targetHostKey = selectedTouchpadHostKey)
     }
 
     private fun triggerBiometricUnlock() {
@@ -980,12 +1024,13 @@ class MainActivity : AppCompatActivity() {
             BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
         )
 
+        val targetName = getHostDisplayName(selectedTouchpadHostKey)
         if (canAuthenticate != BiometricManager.BIOMETRIC_SUCCESS) {
             // Cihazda biyometri veya kilit yoksa, doğrudan kayıtlı PIN ile açmayı dene
             val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
             val pin = prefs.getString("pc_unlock_pin", null)
-            SyncForegroundService.instance?.sendBiometricUnlock(pin)
-            Toast.makeText(this, "🔐 Kilit açma komutu gönderildi", Toast.LENGTH_SHORT).show()
+            SyncForegroundService.instance?.sendBiometricUnlock(pin, targetHostKey = selectedTouchpadHostKey)
+            Toast.makeText(this, "🔐 Kilit açma komutu gönderildi ($targetName)", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -995,8 +1040,8 @@ class MainActivity : AppCompatActivity() {
                 super.onAuthenticationSucceeded(result)
                 val prefs = getSharedPreferences("sync_prefs", Context.MODE_PRIVATE)
                 val pin = prefs.getString("pc_unlock_pin", null)
-                SyncForegroundService.instance?.sendBiometricUnlock(pin)
-                Toast.makeText(this@MainActivity, "✅ Parmak izi doğrulandı, bilgisayar kilidi açılıyor...", Toast.LENGTH_SHORT).show()
+                SyncForegroundService.instance?.sendBiometricUnlock(pin, targetHostKey = selectedTouchpadHostKey)
+                Toast.makeText(this@MainActivity, "✅ Parmak izi doğrulandı, $targetName kilidi açılıyor...", Toast.LENGTH_SHORT).show()
             }
 
             override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -1111,6 +1156,17 @@ class MainActivity : AppCompatActivity() {
                 updateMediaUI(info)
             }
         }
+        service.onHostMediaInfoUpdate = { info, hostName, hostKey ->
+            runOnUiThread {
+                if (selectedMediaHostKey == null || selectedMediaHostKey == hostKey) {
+                    if (selectedMediaHostKey == null) {
+                        selectedMediaHostKey = hostKey
+                    }
+                    updateMediaUI(info)
+                }
+                updateTargetHostSelectors()
+            }
+        }
         service.webSocketClient?.onPairingRequested = { host, pin ->
             runOnUiThread {
                 showPairingRequestDialog(host, pin)
@@ -1120,6 +1176,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 Toast.makeText(this, "✅ ${host.name} ile güvenli eşleştirme tamamlandı!", Toast.LENGTH_LONG).show()
                 refreshDevicesUI()
+                updateTargetHostSelectors()
             }
         }
     }
@@ -1140,14 +1197,172 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("İzin Ver ve Eşleştir") { dialog, _ ->
                 SyncForegroundService.instance?.webSocketClient?.approvePairing(host.key)
                 refreshDevicesUI()
+                updateTargetHostSelectors()
                 dialog.dismiss()
             }
             .setNegativeButton("Reddet") { dialog, _ ->
                 SyncForegroundService.instance?.webSocketClient?.rejectPairing(host.key)
                 refreshDevicesUI()
+                updateTargetHostSelectors()
                 dialog.dismiss()
             }
             .show()
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
+    }
+
+    private fun getHostDisplayName(hostKey: String?): String {
+        if (hostKey == null) return "Tüm Bilgisayarlar"
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val host = wsClient?.connectedHosts?.find { it.key == hostKey }
+        return host?.name ?: hostKey
+    }
+
+    private fun createPill(title: String, isSelected: Boolean, onClick: () -> Unit): TextView {
+        return TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                dpToPx(34)
+            ).apply {
+                marginEnd = dpToPx(8)
+            }
+            gravity = Gravity.CENTER
+            setPadding(dpToPx(14), 0, dpToPx(14), 0)
+            text = title
+            textSize = 12f
+            typeface = Typeface.DEFAULT_BOLD
+            if (isSelected) {
+                setBackgroundResource(R.drawable.tab_active_bg)
+                setTextColor(ContextCompat.getColor(context, R.color.accent_blue))
+            } else {
+                setBackgroundResource(R.drawable.tab_inactive_bg)
+                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            }
+            setOnClickListener {
+                performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                onClick()
+            }
+        }
+    }
+
+    private fun updateTargetHostSelectors() {
+        val wsClient = SyncForegroundService.instance?.webSocketClient
+        val connectedHosts = wsClient?.connectedHosts?.filter { it.isConnected && it.isAuthorized } ?: emptyList()
+
+        // Validate selection states (if selected host was disconnected, reset to null)
+        if (selectedTouchpadHostKey != null && connectedHosts.none { it.key == selectedTouchpadHostKey }) {
+            selectedTouchpadHostKey = null
+        }
+        if (selectedClipboardHostKey != null && connectedHosts.none { it.key == selectedClipboardHostKey }) {
+            selectedClipboardHostKey = null
+        }
+        if (selectedFilesHostKey != null && connectedHosts.none { it.key == selectedFilesHostKey }) {
+            selectedFilesHostKey = null
+        }
+        if (selectedMediaHostKey != null && connectedHosts.none { it.key == selectedMediaHostKey }) {
+            selectedMediaHostKey = connectedHosts.firstOrNull()?.key
+        }
+        if (selectedMediaHostKey == null && connectedHosts.isNotEmpty()) {
+            selectedMediaHostKey = connectedHosts.first().key
+        }
+
+        // --- 1. Touchpad Target Selector ---
+        tvTouchpadSelectedHost.text = if (selectedTouchpadHostKey == null) {
+            "🌐 Tüm Bilgisayarlar (${connectedHosts.size})"
+        } else {
+            val host = connectedHosts.find { it.key == selectedTouchpadHostKey }
+            val icon = if (host?.os?.lowercase() == "mac") "🍏" else "🪟"
+            "🎯 $icon ${host?.name ?: selectedTouchpadHostKey}"
+        }
+        llTouchpadTargetPills.removeAllViews()
+        llTouchpadTargetPills.addView(createPill("🌐 Tümü", selectedTouchpadHostKey == null) {
+            selectedTouchpadHostKey = null
+            updateTargetHostSelectors()
+        })
+        for (host in connectedHosts) {
+            val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
+            val isSel = selectedTouchpadHostKey == host.key
+            llTouchpadTargetPills.addView(createPill("$icon ${host.name}", isSel) {
+                selectedTouchpadHostKey = host.key
+                updateTargetHostSelectors()
+            })
+        }
+
+        // --- 2. Media Target Selector ---
+        val curMediaHost = connectedHosts.find { it.key == selectedMediaHostKey }
+        tvMediaSelectedHost.text = if (curMediaHost != null) {
+            val icon = if (curMediaHost.os.lowercase() == "mac") "🍏" else "🪟"
+            "🎯 $icon ${curMediaHost.name} (Denetleniyor)"
+        } else {
+            "🎯 Bilgisayar Bağlı Değil"
+        }
+        llMediaTargetPills.removeAllViews()
+        if (connectedHosts.isEmpty()) {
+            val emptyTv = TextView(this).apply {
+                text = "Bağlı ve eşleşmiş bilgisayar yok"
+                textSize = 11f
+                setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            }
+            llMediaTargetPills.addView(emptyTv)
+        } else {
+            for (host in connectedHosts) {
+                val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
+                val playingTag = if (host.lastMedia?.is_playing == true) " 🎵" else ""
+                val isSel = selectedMediaHostKey == host.key
+                llMediaTargetPills.addView(createPill("$icon ${host.name}$playingTag", isSel) {
+                    selectedMediaHostKey = host.key
+                    updateTargetHostSelectors()
+                    val info = host.lastMedia ?: MediaInfoPayload(title = "Medya Çalmıyor", artist = host.name)
+                    updateMediaUI(info)
+                })
+            }
+        }
+
+        // --- 3. Clipboard & SMS Target Selector ---
+        tvClipboardSelectedHost.text = if (selectedClipboardHostKey == null) {
+            "🌐 Tüm Bilgisayarlar (${connectedHosts.size})"
+        } else {
+            val host = connectedHosts.find { it.key == selectedClipboardHostKey }
+            val icon = if (host?.os?.lowercase() == "mac") "🍏" else "🪟"
+            "🎯 $icon ${host?.name ?: selectedClipboardHostKey}"
+        }
+        llClipboardTargetPills.removeAllViews()
+        llClipboardTargetPills.addView(createPill("🌐 Tümü (Yayınla)", selectedClipboardHostKey == null) {
+            selectedClipboardHostKey = null
+            updateTargetHostSelectors()
+        })
+        for (host in connectedHosts) {
+            val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
+            val isSel = selectedClipboardHostKey == host.key
+            llClipboardTargetPills.addView(createPill("$icon ${host.name}", isSel) {
+                selectedClipboardHostKey = host.key
+                updateTargetHostSelectors()
+            })
+        }
+
+        // --- 4. Files & Web Target Selector ---
+        tvFilesSelectedHost.text = if (selectedFilesHostKey == null) {
+            "🌐 Tüm Bilgisayarlar (${connectedHosts.size})"
+        } else {
+            val host = connectedHosts.find { it.key == selectedFilesHostKey }
+            val icon = if (host?.os?.lowercase() == "mac") "🍏" else "🪟"
+            "🎯 $icon ${host?.name ?: selectedFilesHostKey}"
+        }
+        llFilesTargetPills.removeAllViews()
+        llFilesTargetPills.addView(createPill("🌐 Tümü (Yayınla)", selectedFilesHostKey == null) {
+            selectedFilesHostKey = null
+            updateTargetHostSelectors()
+        })
+        for (host in connectedHosts) {
+            val icon = if (host.os.lowercase() == "mac") "🍏" else "🪟"
+            val isSel = selectedFilesHostKey == host.key
+            llFilesTargetPills.addView(createPill("$icon ${host.name}", isSel) {
+                selectedFilesHostKey = host.key
+                updateTargetHostSelectors()
+            })
+        }
     }
 
     private fun refreshDevicesUI() {
@@ -1194,6 +1409,7 @@ class MainActivity : AppCompatActivity() {
         if (displayList.isEmpty()) {
             llComputersContainer.addView(llEmptyComputers)
             llEmptyComputers.visibility = View.VISIBLE
+            updateTargetHostSelectors()
             return
         }
         llEmptyComputers.visibility = View.GONE
@@ -1294,6 +1510,7 @@ class MainActivity : AppCompatActivity() {
 
             llComputersContainer.addView(cardView)
         }
+        updateTargetHostSelectors()
     }
 
     private fun updatePermissionsUI() {

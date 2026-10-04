@@ -58,6 +58,7 @@ class SyncForegroundService : Service() {
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
     var onMacMediaInfoUpdate: ((com.sync.android.model.MediaInfoPayload) -> Unit)? = null
+    var onHostMediaInfoUpdate: ((info: com.sync.android.model.MediaInfoPayload, hostName: String, hostKey: String) -> Unit)? = null
     var onPairingRequested: ((com.sync.android.network.ConnectedHost, String) -> Unit)? = null
     var lastMacMedia: com.sync.android.model.MediaInfoPayload? = null
     var connectedServerName: String = "Cihaz Aranıyor 🟡"
@@ -297,9 +298,10 @@ class SyncForegroundService : Service() {
             onPhoneCommandReceived = { action, _ ->
                 PhoneController.handleAction(this@SyncForegroundService, action)
             }
-            onMediaInfoReceived = { info, _, _ ->
+            onMediaInfoReceived = { info, hostName, hostKey ->
                 lastMacMedia = info
                 onMacMediaInfoUpdate?.invoke(info)
+                onHostMediaInfoUpdate?.invoke(info, hostName, hostKey)
             }
             onCallActionReceived = { action, number, value, _ ->
                 CallManager.handleCallAction(this@SyncForegroundService, action, number, value)
@@ -651,6 +653,14 @@ class SyncForegroundService : Service() {
 
     fun sendBiometricUnlock(pin: String? = null, targetHostKey: String? = null) {
         webSocketClient?.sendBiometricUnlock(pin, targetHostKey)
+    }
+
+    fun sendClipboard(text: String, targetHostKey: String? = null) {
+        webSocketClient?.sendClipboard(text, targetHostKey = targetHostKey)
+    }
+
+    fun sendOpenUrl(url: String, targetHostKey: String? = null) {
+        webSocketClient?.sendOpenUrl(url, targetHostKey = targetHostKey)
     }
 
 
