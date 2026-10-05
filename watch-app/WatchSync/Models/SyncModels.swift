@@ -135,6 +135,29 @@ struct NotificationItem: Codable, Identifiable, Equatable {
     }
 }
 
+// MARK: - Discovered Device Item
+struct DiscoveredDeviceItem: Codable, Identifiable, Hashable {
+    var id: String
+    var name: String
+    var model: String
+    var ip: String
+    var remoteAddr: String?
+    var batteryLevel: Int?
+    var isCharging: Bool?
+    var isPaired: Bool?
+    
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case model
+        case ip
+        case remoteAddr = "remote_addr"
+        case batteryLevel = "battery_level"
+        case isCharging = "is_charging"
+        case isPaired = "is_paired"
+    }
+}
+
 // MARK: - Full Status Response from /status
 struct StatusResponse: Codable {
     var status: String?
@@ -144,11 +167,13 @@ struct StatusResponse: Codable {
     var port: Int?
     var isPaired: Bool?
     var pairedDeviceName: String?
+    var pairingPin: String?
     var macMedia: MediaInfo?
     var phoneMedia: MediaInfo?
     var deviceInfo: DeviceInfo?
     var callState: CallState?
     var notifications: [NotificationItem]?
+    var devices: [DiscoveredDeviceItem]?
     
     enum CodingKeys: String, CodingKey {
         case status
@@ -158,11 +183,13 @@ struct StatusResponse: Codable {
         case port
         case isPaired = "is_paired"
         case pairedDeviceName = "paired_device_name"
+        case pairingPin = "pairing_pin"
         case macMedia = "mac_media"
         case phoneMedia = "phone_media"
         case deviceInfo = "device_info"
         case callState = "call_state"
         case notifications
+        case devices
     }
 }
 

@@ -347,6 +347,26 @@ func (s *SyncServer) GetPairingPIN() string {
 	return s.pairingPIN
 }
 
+func (s *SyncServer) GetDiscoveryInfo() (string, string, string, int, bool, string, bool) {
+	s.devicesMu.RLock()
+	var dev *ClientDevice
+	for _, d := range s.devices {
+		dev = d
+		break
+	}
+	s.devicesMu.RUnlock()
+
+	s.configMu.RLock()
+	pin := s.pairingPIN
+	isPaired := s.isPaired
+	s.configMu.RUnlock()
+
+	if dev != nil {
+		return dev.Name, dev.Model, dev.IP, dev.BatteryLevel, dev.IsCharging, pin, isPaired
+	}
+	return "", "", "", 0, false, pin, isPaired
+}
+
 func (s *SyncServer) saveConfig() {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
@@ -483,6 +503,12 @@ func (s *SyncServer) Start(ctx context.Context) error {
 			statusResp["model"] = dev.Model
 			statusResp["battery_level"] = dev.BatteryLevel
 			statusResp["is_charging"] = dev.IsCharging
+			statusResp["device_info"] = map[string]any{
+				"device_name":   dev.DeviceName,
+				"model":         dev.Model,
+				"battery_level": dev.BatteryLevel,
+				"is_charging":   dev.IsCharging,
+			}
 		}
 		if macMedia != nil {
 			statusResp["mac_media"] = macMedia
@@ -557,6 +583,50 @@ func (s *SyncServer) Start(ctx context.Context) error {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success":     true,
 			"pairing_pin": s.pairingPIN,
+		})
+	})
+
+	// Pair Confirm API (Watch & Mobile Clients)
+	mux.HandleFunc("/pair/confirm", func(w http.ResponseWriter, r *http.Request) {
+		pin := r.URL.Query().Get("pin")
+		devName := r.URL.Query().Get("device_name")
+		if devName == "" {
+			devName = "Apple Watch"
+		}
+
+		s.configMu.RLock()
+		serverPIN := s.pairingPIN
+		s.configMu.RUnlock()
+
+		if pin != "" && pin != serverPIN {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"success": false,
+				"error":   "Geçersiz PIN kodu! Eşleşme başarısız.",
+			})
+			return
+		}
+
+		token := fmt.Sprintf("watch-token-%d", time.Now().UnixNano())
+		s.saveAuthToken(token, devName)
+
+		confirmMsg, _ := protocol.NewMessage(protocol.EventPairConfirm, map[string]any{
+			"approved":    true,
+			"client_name": devName,
+			"auth_token":  token,
+		})
+		s.Broadcast(confirmMsg)
+
+		log.Printf("[Güvenlik] ⌚ Cihaz PIN ile eşleştirildi: %s (PIN: %s)", devName, serverPIN)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":            true,
+			"is_paired":          true,
+			"paired_device_name": devName,
+			"pairing_pin":        serverPIN,
+			"message":            "Eşleştirme başarıyla tamamlandı!",
 		})
 	})
 
@@ -1734,6 +1804,20 @@ func (s *SyncServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	if curMacMedia != nil {
 		if initialMedia, err := protocol.NewMessage(protocol.EventMediaInfo, curMacMedia); err == nil {
 			_ = conn.WriteJSON(initialMedia)
+		}
+	}
+	s.clientsMu.RLock()
+	curDevInfo := s.lastDeviceInfo
+	curPhoneMedia := s.lastPhoneMedia
+	s.clientsMu.RUnlock()
+	if curDevInfo != nil {
+		if devMsg, err := protocol.NewMessage(protocol.EventDeviceInfo, curDevInfo); err == nil {
+			_ = conn.WriteJSON(devMsg)
+		}
+	}
+	if curPhoneMedia != nil {
+		if pmMsg, err := protocol.NewMessage(protocol.EventMediaInfo, curPhoneMedia); err == nil {
+			_ = conn.WriteJSON(pmMsg)
 		}
 	}
 

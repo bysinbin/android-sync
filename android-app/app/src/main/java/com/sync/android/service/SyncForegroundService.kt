@@ -54,6 +54,7 @@ class SyncForegroundService : Service() {
     lateinit var callAudioBridgeManager: CallAudioBridgeManager
     lateinit var appLaunchManager: AppLaunchManager
     lateinit var screenDimManager: ScreenDimManager
+    lateinit var watchCompanionServer: WatchCompanionServer
 
     var onStatusChanged: ((Boolean, String) -> Unit)? = null
     var onClipboardUpdate: ((String) -> Unit)? = null
@@ -89,6 +90,8 @@ class SyncForegroundService : Service() {
         callAudioBridgeManager = CallAudioBridgeManager(this)
         appLaunchManager = AppLaunchManager(this)
         screenDimManager = ScreenDimManager(this)
+        watchCompanionServer = WatchCompanionServer(this)
+        watchCompanionServer.start()
 
         screenMirrorManager.onFrameEncoded = { b64, w, h ->
             if (activeScreenMirrorHosts.isNotEmpty()) {
@@ -393,7 +396,8 @@ class SyncForegroundService : Service() {
                 } else {
                     activeScreenMirrorHosts.remove(hostKey)
                     if (activeScreenMirrorHosts.isEmpty()) {
-                        screenMirrorManager.stopMirroring()
+                        watchCompanionServer.stop()
+        screenMirrorManager.stopMirroring()
                     }
                 }
             }
@@ -468,7 +472,8 @@ class SyncForegroundService : Service() {
             onHostDisconnected = { hostKey ->
                 activeScreenMirrorHosts.remove(hostKey)
                 if (activeScreenMirrorHosts.isEmpty()) {
-                    screenMirrorManager.stopMirroring()
+                    watchCompanionServer.stop()
+        screenMirrorManager.stopMirroring()
                 }
                 if (activeCallAudioHostKey == hostKey) {
                     activeCallAudioHostKey = null
@@ -742,6 +747,7 @@ class SyncForegroundService : Service() {
         activeScreenMirrorHosts.clear()
         activeStorageMountHosts.clear()
         activeCallAudioHostKey = null
+        watchCompanionServer.stop()
         screenMirrorManager.stopMirroring()
         webDavServer.stop()
         hotspotManager.stopHotspot()

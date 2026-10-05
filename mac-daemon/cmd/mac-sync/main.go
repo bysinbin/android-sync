@@ -80,7 +80,9 @@ func main() {
 	})
 
 	// 3. UDP Keşif ve Beacon Başlat
-	discovery.StartBroadcaster(ctx, serverName, defaultWSPort)
+	discovery.StartBroadcasterWithProvider(ctx, serverName, defaultWSPort, func() (string, string, string, int, bool, string, bool) {
+		return syncServer.GetDiscoveryInfo()
+	})
 	log.Printf("[Keşif] UDP Broadcast yayını başlatıldı (Port %d)", discovery.DiscoveryPort)
 
 	// 4. WebSocket Sunucusunu Başlat

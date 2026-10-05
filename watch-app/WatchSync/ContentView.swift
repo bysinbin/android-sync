@@ -3,7 +3,7 @@ import WatchKit
 
 struct ContentView: View {
     @EnvironmentObject var syncService: WatchSyncService
-    @State private var selectedTab: Int = 0
+    @State private var selectedTab: Int = 3
     
     var body: some View {
         ZStack {

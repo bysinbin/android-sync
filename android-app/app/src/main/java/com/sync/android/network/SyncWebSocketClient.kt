@@ -217,6 +217,36 @@ class SyncWebSocketClient(
                     }
                 }
 
+                "watch_status", ProtocolEvents.PAIR_CONFIRM -> {
+                    try {
+                        val obj = msg.payload.asJsonObject
+                        val isPaired = obj.get("approved")?.asBoolean ?: obj.get("is_paired")?.asBoolean ?: true
+                        val clientName = obj.get("client_name")?.asString ?: obj.get("name")?.asString ?: "Apple Watch"
+                        val devType = obj.get("device_type")?.asString ?: obj.get("os")?.asString ?: ""
+                        if (devType.contains("watch", ignoreCase = true) || clientName.contains("Watch", ignoreCase = true)) {
+                            val paired = com.sync.android.security.PairedHostConfig(
+                                clientId = "apple-watch",
+                                name = clientName,
+                                os = "watchOS",
+                                authToken = "watch-token",
+                                isPaired = isPaired,
+                                allowClipboard = true,
+                                allowCalls = true,
+                                allowSms = true,
+                                allowMedia = true,
+                                lastSeen = System.currentTimeMillis()
+                            )
+                            manager.saveDevice(paired)
+                            com.sync.android.service.WatchCompanionServer.isWatchConnected = true
+                            notifyConnectionChange()
+                            com.sync.android.service.WatchCompanionServer.onWatchStatusChanged?.invoke()
+                            Log.d(TAG, "⌚ Apple Watch durumu kaydedildi: $clientName (Eşleşti: $isPaired)")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "watch_status hatası: ${e.message}")
+                    }
+                }
+
                 ProtocolEvents.UNPAIR -> {
                     if (host != null) {
                         manager.unpair(host.clientId)

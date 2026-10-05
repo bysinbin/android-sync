@@ -577,6 +577,12 @@ class MainActivity : AppCompatActivity() {
     private fun setupListeners() {
         val deviceManager = PairedDeviceManager.getInstance(this)
 
+        com.sync.android.service.WatchCompanionServer.onWatchStatusChanged = {
+            runOnUiThread {
+                refreshDevicesUI()
+            }
+        }
+
         // Tab Navigation
         tabBtnComputers.setOnClickListener { switchTab(0) }
         tabBtnTouchpad.setOnClickListener { switchTab(1) }
@@ -1616,15 +1622,16 @@ class MainActivity : AppCompatActivity() {
             val port = host?.port ?: paired?.lastPort ?: 42424
             val clientId = host?.clientId ?: paired?.clientId ?: host?.key ?: ""
 
-            tvOsIcon.text = if (os.lowercase() == "mac") "🍏" else "🪟"
-            tvComputerName.text = name
-            tvComputerIp.text = "IP: $ip:$port"
+            val isWatch = os.lowercase().contains("watch") || clientId.contains("watch")
+            tvOsIcon.text = if (os.lowercase() == "mac") "🍏" else if (isWatch) "⌚" else "🪟"
+            tvComputerName.text = if (isWatch) "Apple Watch" else name
+            tvComputerIp.text = if (isWatch) "Doğrudan Telefon Eşleşmesi" else "IP: $ip:$port"
 
-            val isConnected = host?.isConnected == true
+            val isConnected = (isWatch && (com.sync.android.service.WatchCompanionServer.isWatchConnected || paired?.isPaired == true)) || host?.isConnected == true
             val isAuthorized = host?.isAuthorized == true || (paired != null && paired.isPaired && isConnected)
 
             if (isConnected && isAuthorized) {
-                tvBadge.text = "🟢 Bağlı & Eşleşti"
+                tvBadge.text = if (isWatch) "🟢 Doğrudan Bağlı & Eşleşti 🔒" else "🟢 Bağlı & Eşleşti"
                 tvBadge.setTextColor(Color.parseColor("#3FB950"))
                 btnPairNow.visibility = View.GONE
                 btnUnpair.visibility = View.VISIBLE
