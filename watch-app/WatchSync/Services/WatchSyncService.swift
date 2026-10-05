@@ -24,6 +24,8 @@ class WatchSyncService: ObservableObject {
     @Published var pairingPin: String = "170260"
     @Published var pairedDeviceName: String = "Apple Watch"
     @Published var volumeLevel: Double = 50.0
+    @Published var notifications: [NotificationItem] = []
+    @Published var activeBanner: NotificationItem? = nil
     
     // MARK: - Private
     private var webSocketTask: URLSessionWebSocketTask?
@@ -32,6 +34,9 @@ class WatchSyncService: ObservableObject {
     private var statusPollTimer: Timer?
     private var isIntentionalDisconnect: Bool = false
     private var consecutiveFailures: Int = 0
+    private var seenNotificationIds: Set<String> = []
+    private var bannerDismissTimer: Timer?
+    private var isInitialPollDone: Bool = false
     
     var activeMedia: MediaInfo {
         get {
@@ -280,6 +285,20 @@ class WatchSyncService: ObservableObject {
                 if let paired = statusObj.isPaired { self.isPaired = paired }
                 if let pin = statusObj.pairingPin, !pin.isEmpty { self.pairingPin = pin }
                 if let pName = statusObj.pairedDeviceName, !pName.isEmpty { self.pairedDeviceName = pName }
+                if let notifs = statusObj.notifications {
+                    self.notifications = notifs
+                    if !self.isInitialPollDone {
+                        for n in notifs {
+                            self.seenNotificationIds.insert(n.id)
+                        }
+                        self.isInitialPollDone = true
+                    } else {
+                        if let newest = notifs.first, !self.seenNotificationIds.contains(newest.id) {
+                            self.seenNotificationIds.insert(newest.id)
+                            self.triggerNotificationBanner(newest)
+                        }
+                    }
+                }
                 
                 self.isConnected = true
                 self.isPhoneConnected = true
@@ -293,6 +312,21 @@ class WatchSyncService: ObservableObject {
         }
     }
     
+    // MARK: - Notification Handling
+    func triggerNotificationBanner(_ item: NotificationItem) {
+        print("🔔 [WatchSyncService] Yeni bildirim geldi: [\(item.appName)] \(item.title) - \(item.text)")
+        WKInterfaceDevice.current().play(.notification)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            self.activeBanner = item
+        }
+        bannerDismissTimer?.invalidate()
+        bannerDismissTimer = Timer.scheduledTimer(withTimeInterval: 5.5, repeats: false) { [weak self] _ in
+            withAnimation(.easeOut(duration: 0.25)) {
+                self?.activeBanner = nil
+            }
+        }
+    }
+
     // MARK: - Media Controls
     func playPause() {
         WKInterfaceDevice.current().play(.click)

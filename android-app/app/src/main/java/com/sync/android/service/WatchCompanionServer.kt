@@ -169,11 +169,8 @@ class WatchCompanionServer(private val context: Context, val port: Int = 42424) 
                 "is_charging" to isCharging
             ),
             "phone_media" to mediaMap,
-            "call_state" to mapOf(
-                "state" to "IDLE",
-                "phone_number" to "",
-                "caller_name" to ""
-            )
+            "call_state" to SyncNotificationListenerService.currentCallState,
+            "notifications" to SyncNotificationListenerService.recentNotifications.toList()
         )
 
         sendJsonResponse(out, 200, resp)

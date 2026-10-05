@@ -15,6 +15,8 @@ class SyncNotificationListenerService : NotificationListenerService() {
         private const val TAG = "NotificationListener"
         var instance: SyncNotificationListenerService? = null
         val cachedNotifications = ConcurrentHashMap<String, StatusBarNotification>()
+        val recentNotifications = java.util.concurrent.CopyOnWriteArrayList<Map<String, Any>>()
+        var currentCallState: Map<String, String> = mapOf("state" to "IDLE", "phone_number" to "", "caller_name" to "")
 
         fun replyToNotification(key: String, actionIndex: Int, text: String): Boolean {
             val service = instance ?: return false
@@ -113,7 +115,8 @@ class SyncNotificationListenerService : NotificationListenerService() {
         if (sbn == null) return
 
         val pkgName = sbn.packageName
-        if (pkgName == packageName) {
+        val isPCNotif = sbn.notification?.channelId == SyncForegroundService.CHANNEL_PC_NOTIF_ID
+        if (pkgName == packageName && !isPCNotif) {
             return
         }
 
@@ -144,7 +147,7 @@ class SyncNotificationListenerService : NotificationListenerService() {
             return
         }
 
-        if (pkgName == "android" && !isCall) {
+        if (pkgName == "android" && !isCall && notification.channelId != "shell_cmd") {
             return
         }
 
@@ -176,6 +179,27 @@ class SyncNotificationListenerService : NotificationListenerService() {
         val canReply = actionList.any { it.is_reply }
 
         Log.d(TAG, "Yeni Bildirim (Arama: $isCall, Yanıtlanabilir: $canReply, Aksiyonlar: ${actionList.size}): [$appName] $title -> $text")
+
+        val notifId = "${sbn.id}_${sbn.postTime}"
+        val notifMap = mapOf(
+            "id" to notifId,
+            "package_name" to pkgName,
+            "app_name" to (if (isCall) "📞 $appName (Gelen Arama)" else appName),
+            "title" to title,
+            "text" to text,
+            "timestamp" to sbn.postTime
+        )
+        recentNotifications.removeIf { it["id"] == notifId || (it["title"] == title && it["text"] == text) }
+        recentNotifications.add(0, notifMap)
+        while (recentNotifications.size > 25) {
+            recentNotifications.removeAt(recentNotifications.size - 1)
+        }
+
+        if (isCall) {
+            val caller = if (title.isNotEmpty()) title else text
+            val number = if (text.isNotEmpty() && text != title) text else ""
+            currentCallState = mapOf("state" to "RINGING", "phone_number" to number, "caller_name" to caller)
+        }
 
         val ws = SyncForegroundService.instance?.webSocketClient
         if (ws?.isConnected == true) {
@@ -213,8 +237,11 @@ class SyncNotificationListenerService : NotificationListenerService() {
         if (ws?.isConnected == true) {
             if (isCall) {
                 Log.d(TAG, "Çağrı bildirimi kaldırıldı (Arama bitti veya cevaplandı)")
+                currentCallState = mapOf("state" to "IDLE", "phone_number" to "", "caller_name" to "")
                 ws.sendCallState(state = "IDLE", number = "", callerName = "")
             }
+            val notifId = "${sbn.id}_${sbn.postTime}"
+            recentNotifications.removeIf { it["id"] == notifId }
             // Kendi servis bildirimimiz haricindekileri PC'ye kapatıldı olarak ilet
             if (pkgName != packageName) {
                 ws.sendNotificationDismiss(sbn.key, sbn.id.toString())
