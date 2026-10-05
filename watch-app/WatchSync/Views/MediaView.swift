@@ -22,6 +22,62 @@ enum CrownMode: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Album Artwork Thumbnail Component
+struct MediaArtworkView: View {
+    let media: MediaInfo
+    
+    var body: some View {
+        ZStack {
+            if let b64 = media.artworkBase64,
+               let data = Data(base64Encoded: b64),
+               let uiImg = UIImage(data: data) {
+                Image(uiImage: uiImg)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 34, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .shadow(color: .black.opacity(0.4), radius: 2)
+            } else if let urlStr = media.artworkUrl, let url = URL(string: urlStr) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    default:
+                        placeholderArt
+                    }
+                }
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .shadow(color: .black.opacity(0.4), radius: 2)
+            } else {
+                placeholderArt
+            }
+        }
+    }
+    
+    private var placeholderArt: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 7)
+                .fill(
+                    LinearGradient(
+                        colors: media.isPlaying
+                            ? [Color.purple.opacity(0.7), Color.blue.opacity(0.7)]
+                            : [Color.white.opacity(0.15), Color.white.opacity(0.05)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 34, height: 34)
+            
+            Image(systemName: media.isPlaying ? "music.note" : "play.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(media.isPlaying ? .white : .gray)
+        }
+    }
+}
+
 struct MediaView: View {
     @EnvironmentObject var syncService: WatchSyncService
     
@@ -119,6 +175,22 @@ struct MediaView: View {
                         Text("Mac")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.cyan)
+                    }
+                    
+                    // 3. BLE Durum Rozeti (Eğer BLE bağlıysa)
+                    if syncService.isBluetoothConnected || WatchBluetoothService.shared.isConnected {
+                        Text("•")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        
+                        HStack(spacing: 2) {
+                            Image(systemName: "antenna.radiowaves.left.and.right")
+                                .font(.system(size: 8))
+                                .foregroundColor(.cyan)
+                            Text("BLE")
+                                .font(.system(size: 8, weight: .bold))
+                                .foregroundColor(.cyan)
+                        }
                     }
                     
                     if !syncService.notifications.isEmpty {
@@ -244,21 +316,25 @@ struct MediaView: View {
                 }
                 .padding(.horizontal, 1)
                 
-                // MARK: - Track Info
-                VStack(spacing: 1) {
-                    Text(media.title.isEmpty ? (syncService.selectedSource == .phone ? "Telefon Medyası Hazır" : "Mac Medyası Hazır") : media.title)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.center)
+                // MARK: - Track Info & Artwork
+                HStack(spacing: 8) {
+                    MediaArtworkView(media: media)
                     
-                    Text(media.artist.isEmpty ? (isPhoneActive ? "Çalmak için dokunun" : "Beklemede...") : media.artist)
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(media.title.isEmpty ? (syncService.selectedSource == .phone ? "Telefon Medyası Hazır" : "Mac Medyası Hazır") : media.title)
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        Text(media.artist.isEmpty ? (isPhoneActive ? "Çalmak için dokunun" : "Beklemede...") : media.artist)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity)
                 .padding(.horizontal, 4)
+                .padding(.vertical, 2)
                 
                 // MARK: - Progress & Timeline (Interactive & Scrubber)
                 VStack(spacing: 2) {

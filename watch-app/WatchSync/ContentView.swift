@@ -286,6 +286,49 @@ struct NotificationRowView: View {
                     .foregroundColor(.white.opacity(0.85))
                     .lineLimit(3)
             }
+            
+            // Quick Action Buttons
+            HStack(spacing: 6) {
+                Button(action: {
+                    WKInterfaceDevice.current().play(.click)
+                    onDismiss()
+                }) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 8))
+                        Text("Okundu")
+                            .font(.system(size: 8, weight: .semibold))
+                    }
+                    .foregroundColor(.green)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.green.opacity(0.18))
+                    .cornerRadius(6)
+                }
+                .buttonStyle(.plain)
+                
+                let pkg = notification.packageName.lowercased()
+                if pkg.contains("whatsapp") || pkg.contains("sms") || pkg.contains("telegram") || pkg.contains("messaging") {
+                    Button(action: {
+                        WKInterfaceDevice.current().play(.click)
+                        onDismiss()
+                    }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "hand.thumbsup.fill")
+                                .font(.system(size: 8))
+                            Text("Tamam 👍")
+                                .font(.system(size: 8, weight: .semibold))
+                        }
+                        .foregroundColor(.cyan)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Color.cyan.opacity(0.18))
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 2)
         }
         .padding(8)
         .background(

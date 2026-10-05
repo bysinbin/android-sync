@@ -46,6 +46,8 @@ struct MediaInfo: Codable, Equatable {
     var volume: Int? = 50
     var deviceId: String? = nil
     var deviceName: String? = nil
+    var artworkUrl: String? = nil
+    var artworkBase64: String? = nil
     
     enum CodingKeys: String, CodingKey {
         case source
@@ -59,9 +61,11 @@ struct MediaInfo: Codable, Equatable {
         case volume
         case deviceId = "device_id"
         case deviceName = "device_name"
+        case artworkUrl = "artwork_url"
+        case artworkBase64 = "artwork_base64"
     }
     
-    init(source: String? = "phone", title: String = "", artist: String = "", album: String = "", isPlaying: Bool = false, positionMs: Int64 = 0, durationMs: Int64 = 0, percent: Double = 0.0) {
+    init(source: String? = "phone", title: String = "", artist: String = "", album: String = "", isPlaying: Bool = false, positionMs: Int64 = 0, durationMs: Int64 = 0, percent: Double = 0.0, artworkUrl: String? = nil, artworkBase64: String? = nil) {
         self.source = source
         self.title = title
         self.artist = artist
@@ -70,6 +74,8 @@ struct MediaInfo: Codable, Equatable {
         self.positionMs = positionMs
         self.durationMs = durationMs
         self.percent = percent
+        self.artworkUrl = artworkUrl
+        self.artworkBase64 = artworkBase64
     }
     
     init(from decoder: Decoder) throws {
@@ -89,6 +95,8 @@ struct MediaInfo: Codable, Equatable {
         self.volume = try container.decodeIfPresent(Int.self, forKey: .volume) ?? 50
         self.deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
         self.deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
+        self.artworkUrl = try container.decodeIfPresent(String.self, forKey: .artworkUrl)
+        self.artworkBase64 = try container.decodeIfPresent(String.self, forKey: .artworkBase64)
     }
     
     var formattedPosition: String {

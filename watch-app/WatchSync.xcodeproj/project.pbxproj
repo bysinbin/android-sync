@@ -18,6 +18,7 @@
 		B188DDD08EF5E442B3AFAF50 /* WatchSyncApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = F18239604A1EFA44BA93BA29 /* WatchSyncApp.swift */; };
 		B199FC7A4596F64D5BB2010A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A951C349286748AEAA6B48 /* ContentView.swift */; };
 		B1B72C92643EB6428CA336C1 /* WatchSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */; };
+		B1CB0001643EB6428CA336C1 /* WatchBluetoothService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1CB0001AF90824916BFDBE5 /* WatchBluetoothService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkDiscovery.swift; sourceTree = "<group>"; };
 		F1A951C349286748AEAA6B48 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchSyncService.swift; sourceTree = "<group>"; };
+		F1CB0001AF90824916BFDBE5 /* WatchBluetoothService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchBluetoothService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +83,7 @@
 			children = (
 				F1953FB1CEAA584155844843 /* NetworkDiscovery.swift */,
 				F1AB04F2AF90824916BFDBE5 /* WatchSyncService.swift */,
+				F1CB0001AF90824916BFDBE5 /* WatchBluetoothService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -193,6 +196,7 @@
 				B10BCB20510B344EB99C7B54 /* RemoteActionsView.swift in Sources */,
 				B1001DE8A39E9E482580907A /* SettingsView.swift in Sources */,
 				B183BA38EC16D34E1D9BBD25 /* IncomingCallSheet.swift in Sources */,
+				B1CB0001643EB6428CA336C1 /* WatchBluetoothService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

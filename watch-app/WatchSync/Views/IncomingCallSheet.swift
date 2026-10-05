@@ -70,5 +70,26 @@ struct IncomingCallSheet: View {
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.edgesIgnoringSafeArea(.all))
+        .onAppear {
+            startRingHaptics()
+        }
+        .onDisappear {
+            stopRingHaptics()
+        }
+    }
+    
+    @State private var ringTimer: Timer?
+    
+    private func startRingHaptics() {
+        ringTimer?.invalidate()
+        WKInterfaceDevice.current().play(.notification)
+        ringTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { _ in
+            WKInterfaceDevice.current().play(.notification)
+        }
+    }
+    
+    private func stopRingHaptics() {
+        ringTimer?.invalidate()
+        ringTimer = nil
     }
 }

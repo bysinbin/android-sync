@@ -28,6 +28,8 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
     @Published var currentTab: Int = 0
     @Published var notifications: [NotificationItem] = []
     @Published var activeBanner: NotificationItem? = nil
+    @Published var isBluetoothConnected: Bool = false
+    @Published var bluetoothDeviceName: String? = nil
     
     // MARK: - Private
     private var webSocketTask: URLSessionWebSocketTask?
@@ -59,6 +61,10 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         config.timeoutIntervalForRequest = 4
         config.timeoutIntervalForResource = 8
         self.urlSession = URLSession(configuration: config)
+        
+        let savedPhone = UserDefaults.standard.string(forKey: "last_known_phone_host") ?? "127.0.0.1"
+        self.serverHost = savedPhone
+        
         super.init()
         
         UNUserNotificationCenter.current().delegate = self
@@ -66,13 +72,18 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
             print("🔔 [WatchSync] Bildirim izni verildi: \(granted)")
         }
         
+        // Start BLE Central for background/offline phone pairing
+        _ = WatchBluetoothService.shared
+        
         connectDirectToPhone()
         startExtendedSession()
     }
     
     // MARK: - Direct Phone Connection (Ana Cihaz)
     func connectDirectToPhone() {
-        self.serverHost = "127.0.0.1"
+        if let saved = UserDefaults.standard.string(forKey: "last_known_phone_host"), !saved.isEmpty, saved != "127.0.0.1" {
+            self.serverHost = saved
+        }
         self.serverPort = 42424
         self.selectedSource = .phone
         self.isDirectPhoneMode = true
@@ -84,16 +95,55 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         
+        // Dinamik alt ağ ve Bonjour aramasını başlat
+        NetworkDiscovery.shared.startDiscovery()
+        
         startStatusPolling()
         fetchStatus()
     }
     
-    // MARK: - Status Polling Timer (Tüm sekmelerde canlı senkronizasyon)
+    func onDiscoveredPhoneHost(ip: String, port: Int) {
+        if self.serverHost != ip || self.serverPort != port {
+            print("🔄 [WatchSyncService] Dinamik telefon IP bulundu: \(ip):\(port)")
+            self.serverHost = ip
+            self.serverPort = port
+            triggerImmediateRefresh()
+        }
+    }
+    
+    // MARK: - Adaptive Status Polling (Pil Tasarruflu Canlı Senkronizasyon)
     func startStatusPolling() {
         statusPollTimer?.invalidate()
-        statusPollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
-            self?.fetchStatus()
+        
+        let interval: TimeInterval
+        if callState.isRinging {
+            interval = 1.0
+        } else if activeMedia.isPlaying {
+            interval = 1.5
+        } else if consecutiveFailures >= 2 {
+            interval = min(10.0, 2.0 * Double(consecutiveFailures))
+        } else {
+            interval = 4.0 // Boştayken pil tasarrufu modu
         }
+        
+        statusPollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [weak self] _ in
+            self?.fetchStatus { _ in
+                self?.startStatusPolling()
+            }
+        }
+    }
+    
+    func triggerImmediateRefresh() {
+        fetchStatus { [weak self] _ in
+            self?.startStatusPolling()
+        }
+    }
+    
+    // MARK: - BLE Fallback Handling
+    func handleIncomingBLEPayload(_ data: Data) {
+        self.isBluetoothConnected = true
+        self.bluetoothDeviceName = WatchBluetoothService.shared.connectedDeviceName
+        parseStatusData(data)
     }
     
     // MARK: - Connection Management
@@ -582,8 +632,15 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         }.resume()
     }
 
-    // MARK: - Generic REST Request Helper
+    // MARK: - Generic REST Request Helper (With BLE Fallback)
     private func sendRestCommand(path: String, params: [String: String]) {
+        // Eğer Wi-Fi koptuysa ve Bluetooth bağlıysa doğrudan BLE üzerinden gönder
+        if !isConnected && WatchBluetoothService.shared.isConnected {
+            print("🔵 [WatchSyncService] Wi-Fi çevrimdışı, komut BLE üzerinden iletiliyor: \(path)")
+            WatchBluetoothService.shared.sendCommand(action: path, params: params)
+            return
+        }
+        
         var components = URLComponents()
         components.scheme = "http"
         components.host = serverHost
@@ -597,13 +654,18 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         request.httpMethod = "POST"
         request.timeoutInterval = 3
         
-        urlSession.dataTask(with: request) { _, _, _ in }.resume()
+        urlSession.dataTask(with: request) { [weak self] _, _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                self?.triggerImmediateRefresh()
+            }
+        }.resume()
     }
     
     private func sendMacCommand(path: String, params: [String: String]) {
+        let macHost = UserDefaults.standard.string(forKey: "last_known_mac_host") ?? "127.0.0.1"
         var components = URLComponents()
         components.scheme = "http"
-        components.host = "127.0.0.1"
+        components.host = macHost
         components.port = 42424
         components.path = path
         components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
@@ -614,6 +676,10 @@ class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDele
         request.httpMethod = "POST"
         request.timeoutInterval = 3
         
-        urlSession.dataTask(with: request) { _, _, _ in }.resume()
+        urlSession.dataTask(with: request) { [weak self] _, _, _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                self?.triggerImmediateRefresh()
+            }
+        }.resume()
     }
 }

@@ -30,8 +30,11 @@
     </array>
     <key>NSLocalNetworkUsageDescription</key>
     <string>MacSync, yerel ağdaki Mac bilgisayarınız ve Android telefonunuz ile senkronize olmak için yerel ağ izni gerektirir.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>MacSync, Wi-Fi olmadığında Android telefonunuzla Bluetooth üzerinden senkronize olmak için Bluetooth erişimi gerektirir.</string>
     <key>NSBonjourServices</key>
     <array>
+        <string>_macsync._tcp</string>
         <string>_sync._tcp</string>
         <string>_http._tcp</string>
     </array>
