@@ -624,6 +624,8 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Ağdaki bilgisayarlar taranıyor...", Toast.LENGTH_SHORT).show()
             SyncForegroundService.instance?.discoveryClient?.stop()
             SyncForegroundService.instance?.discoveryClient?.start()
+            SyncForegroundService.instance?.discoveryClient?.probeKnownEndpoints()
+            SyncForegroundService.instance?.webSocketClient?.connect("192.168.50.96", 42424, "ferit-MacBook-Pro-2.local (Mac Sync)")
             refreshDevicesUI()
         }
 

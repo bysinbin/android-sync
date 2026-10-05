@@ -3,8 +3,10 @@ package discovery
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
+	"syscall"
 	"time"
 )
 
@@ -91,27 +93,37 @@ func StartBroadcaster(ctx context.Context, serverName string, wsPort int) {
 }
 
 func StartBroadcasterWithProvider(ctx context.Context, serverName string, wsPort int, provider ExtraInfoProvider) {
-	// 1. Start listener for incoming discovery requests
+	// 1. Start listener for incoming discovery requests with SO_REUSEPORT
 	go func() {
-		addr := net.UDPAddr{
-			Port: DiscoveryPort,
-			IP:   net.IPv4zero,
+		lc := net.ListenConfig{
+			Control: func(network, address string, c syscall.RawConn) error {
+				var opErr error
+				_ = c.Control(func(fd uintptr) {
+					opErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEPORT, 1)
+					if opErr == nil {
+						_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+					}
+					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				})
+				return opErr
+			},
 		}
-		conn, err := net.ListenUDP("udp4", &addr)
+
+		conn, err := lc.ListenPacket(ctx, "udp4", fmt.Sprintf("0.0.0.0:%d", DiscoveryPort))
 		if err != nil {
 			log.Printf("[Discovery] UDP Listen error on port %d: %v", DiscoveryPort, err)
 			return
 		}
 		defer conn.Close()
 
-		buf := make([]byte, 1024)
+		buf := make([]byte, 2048)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
 				_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-				n, remoteAddr, err := conn.ReadFromUDP(buf)
+				n, remoteAddr, err := conn.ReadFrom(buf)
 				if err != nil {
 					continue
 				}
@@ -119,17 +131,18 @@ func StartBroadcasterWithProvider(ctx context.Context, serverName string, wsPort
 				var req DiscoveryPacket
 				if err := json.Unmarshal(buf[:n], &req); err == nil {
 					if req.Type == "DISCOVER_REQUEST" {
-						// Respond directly to the sender
 						resp := createPacket("DISCOVER_RESPONSE", serverName, wsPort, provider)
 						respBytes, _ := json.Marshal(resp)
-						_, _ = conn.WriteToUDP(respBytes, remoteAddr)
+						_, _ = conn.WriteTo(respBytes, remoteAddr)
 
 						// Also send to sender on DiscoveryPort in case they listened there
-						targetAddr := &net.UDPAddr{
-							IP:   remoteAddr.IP,
-							Port: DiscoveryPort,
+						if udpRemote, ok := remoteAddr.(*net.UDPAddr); ok {
+							targetAddr := &net.UDPAddr{
+								IP:   udpRemote.IP,
+								Port: DiscoveryPort,
+							}
+							_, _ = conn.WriteTo(respBytes, targetAddr)
 						}
-						_, _ = conn.WriteToUDP(respBytes, targetAddr)
 
 						log.Printf("[Discovery] Answered discovery request from %v", remoteAddr)
 					}
@@ -140,7 +153,7 @@ func StartBroadcasterWithProvider(ctx context.Context, serverName string, wsPort
 
 	// 2. Periodic broadcast beacon so mobile devices can detect Mac automatically
 	go func() {
-		ticker := time.NewTicker(3 * time.Second)
+		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -151,10 +164,25 @@ func StartBroadcasterWithProvider(ctx context.Context, serverName string, wsPort
 				beacon := createPacket("DISCOVER_BEACON", serverName, wsPort, provider)
 				beaconData, _ := json.Marshal(beacon)
 				targets := getBroadcastAddresses()
+
+				// If provider returned a phone IP, add it to targets as well
+				if beacon.PhoneIP != "" {
+					phoneIP := net.ParseIP(beacon.PhoneIP)
+					if phoneIP != nil {
+						targets = append(targets, phoneIP)
+					}
+				}
+
 				for _, ip := range targets {
 					addr := &net.UDPAddr{IP: ip, Port: DiscoveryPort}
 					conn, err := net.DialUDP("udp4", nil, addr)
 					if err == nil {
+						raw, err := conn.SyscallConn()
+						if err == nil {
+							_ = raw.Control(func(fd uintptr) {
+								_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+							})
+						}
 						_, _ = conn.Write(beaconData)
 						_ = conn.Close()
 					}

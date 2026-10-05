@@ -3,9 +3,10 @@ import WatchKit
 
 struct ContentView: View {
     @EnvironmentObject var syncService: WatchSyncService
-    @State private var selectedTab: Int = 3
+    @State private var selectedTab: Int = 0
     
     var body: some View {
+        let _ = print("📺 [ContentView] Rendered. selectedTab: \(selectedTab)")
         ZStack {
             TabView(selection: $selectedTab) {
                 MediaView()
@@ -30,7 +31,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            syncService.fetchStatus()
+            syncService.connectDirectToPhone()
         }
     }
 }

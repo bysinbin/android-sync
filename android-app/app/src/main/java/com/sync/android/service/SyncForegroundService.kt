@@ -524,6 +524,17 @@ class SyncForegroundService : Service() {
             webSocketClient?.connect(ip, port, name)
         }
         discoveryClient?.start()
+
+        // Önceden eşleşmiş bilgisayarlara ve yerel Mac sunucusuna anında bağlanmayı dene
+        val pairedManager = com.sync.android.security.PairedDeviceManager.getInstance(this)
+        for (dev in pairedManager.getAllDevices()) {
+            if (dev.clientId != "apple-watch" && dev.lastIp.isNotBlank()) {
+                Log.d(TAG, "Kayıtlı cihaza bağlanılıyor: ${dev.name} (${dev.lastIp}:${dev.lastPort})")
+                webSocketClient?.connect(dev.lastIp, dev.lastPort, dev.name)
+            }
+        }
+        // Mac IP'sini de doğrudan kontrol et
+        webSocketClient?.connect("192.168.50.96", 42424, "ferit-MacBook-Pro-2.local (Mac Sync)")
     }
 
     private fun updateNotification(text: String) {

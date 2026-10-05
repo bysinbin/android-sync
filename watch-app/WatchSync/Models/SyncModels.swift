@@ -2,22 +2,22 @@ import Foundation
 
 // MARK: - Enums
 enum MediaSource: String, CaseIterable, Identifiable {
-    case mac = "mac"
     case phone = "phone"
+    case mac = "mac"
     
     var id: String { rawValue }
     
     var title: String {
         switch self {
-        case .mac: return "Mac"
         case .phone: return "Telefon"
+        case .mac: return "Mac"
         }
     }
     
     var iconName: String {
         switch self {
-        case .mac: return "laptopcomputer"
         case .phone: return "iphone"
+        case .mac: return "laptopcomputer"
         }
     }
 }
@@ -35,7 +35,7 @@ struct WSMessage: Codable {
 
 // MARK: - Media Models
 struct MediaInfo: Codable, Equatable {
-    var source: String? = "mac"
+    var source: String? = "phone"
     var title: String = ""
     var artist: String = ""
     var album: String = ""
@@ -61,6 +61,36 @@ struct MediaInfo: Codable, Equatable {
         case deviceName = "device_name"
     }
     
+    init(source: String? = "phone", title: String = "", artist: String = "", album: String = "", isPlaying: Bool = false, positionMs: Int64 = 0, durationMs: Int64 = 0, percent: Double = 0.0) {
+        self.source = source
+        self.title = title
+        self.artist = artist
+        self.album = album
+        self.isPlaying = isPlaying
+        self.positionMs = positionMs
+        self.durationMs = durationMs
+        self.percent = percent
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? "phone"
+        self.title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        self.artist = try container.decodeIfPresent(String.self, forKey: .artist) ?? ""
+        self.album = try container.decodeIfPresent(String.self, forKey: .album) ?? ""
+        self.isPlaying = try container.decodeIfPresent(Bool.self, forKey: .isPlaying) ?? false
+        self.positionMs = try container.decodeIfPresent(Int64.self, forKey: .positionMs) ?? 0
+        self.durationMs = try container.decodeIfPresent(Int64.self, forKey: .durationMs) ?? 0
+        
+        let rawPercent = try container.decodeIfPresent(Double.self, forKey: .percent) ?? 0.0
+        // If percent is 0..100 from Android, normalize to 0..1
+        self.percent = rawPercent > 1.0 ? (rawPercent / 100.0) : rawPercent
+        
+        self.volume = try container.decodeIfPresent(Int.self, forKey: .volume) ?? 50
+        self.deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+        self.deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
+    }
+    
     var formattedPosition: String {
         let totalSec = max(0, positionMs / 1000)
         let m = totalSec / 60
@@ -79,7 +109,7 @@ struct MediaInfo: Codable, Equatable {
 // MARK: - Device Info Model
 struct DeviceInfo: Codable, Equatable {
     var deviceName: String = "Android Telefon"
-    var model: String = ""
+    var model: String = "Android"
     var batteryLevel: Int = 100
     var isCharging: Bool = false
     
@@ -88,6 +118,21 @@ struct DeviceInfo: Codable, Equatable {
         case model
         case batteryLevel = "battery_level"
         case isCharging = "is_charging"
+    }
+    
+    init(deviceName: String = "Android Telefon", model: String = "Android", batteryLevel: Int = 100, isCharging: Bool = false) {
+        self.deviceName = deviceName
+        self.model = model
+        self.batteryLevel = batteryLevel
+        self.isCharging = isCharging
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName) ?? "Android Telefon"
+        self.model = try container.decodeIfPresent(String.self, forKey: .model) ?? "Android"
+        self.batteryLevel = try container.decodeIfPresent(Int.self, forKey: .batteryLevel) ?? 100
+        self.isCharging = try container.decodeIfPresent(Bool.self, forKey: .isCharging) ?? false
     }
 }
 
@@ -105,6 +150,21 @@ struct CallState: Codable, Equatable {
         case callerName = "caller_name"
         case deviceId = "device_id"
         case deviceName = "device_name"
+    }
+    
+    init(state: String = "IDLE", phoneNumber: String = "", callerName: String = "") {
+        self.state = state
+        self.phoneNumber = phoneNumber
+        self.callerName = callerName
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.state = try container.decodeIfPresent(String.self, forKey: .state) ?? "IDLE"
+        self.phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber) ?? ""
+        self.callerName = try container.decodeIfPresent(String.self, forKey: .callerName) ?? ""
+        self.deviceId = try container.decodeIfPresent(String.self, forKey: .deviceId)
+        self.deviceName = try container.decodeIfPresent(String.self, forKey: .deviceName)
     }
     
     var isRinging: Bool {

@@ -3,6 +3,7 @@ import WatchKit
 
 struct RemoteActionsView: View {
     @EnvironmentObject var syncService: WatchSyncService
+    @State private var isRinging: Bool = false
     
     var body: some View {
         ScrollView {
@@ -11,6 +12,32 @@ struct RemoteActionsView: View {
                     .font(.system(size: 13, weight: .bold))
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 4)
+                
+                // Ring Phone (Find My Phone)
+                ActionButton(
+                    title: isRinging ? "Çaldırmayı Durdur" : "Telefonu Çaldır",
+                    subtitle: "Cihazımı Bul (Yüksek Ses)",
+                    icon: isRinging ? "bell.slash.fill" : "bell.fill",
+                    color: .yellow
+                ) {
+                    if isRinging {
+                        syncService.stopRingPhone()
+                        isRinging = false
+                    } else {
+                        syncService.ringPhone()
+                        isRinging = true
+                    }
+                }
+                
+                // Dual Device Mute All
+                ActionButton(
+                    title: "Tümünü Sessize Al",
+                    subtitle: "Telefon & Mac aynı anda",
+                    icon: "speaker.slash.fill",
+                    color: .red
+                ) {
+                    syncService.muteAll()
+                }
                 
                 // Mac Lock Button
                 ActionButton(
@@ -32,20 +59,10 @@ struct RemoteActionsView: View {
                     syncService.sleepMac()
                 }
                 
-                // Dual Device Mute All
-                ActionButton(
-                    title: "Tümünü Sessize Al",
-                    subtitle: "Mac & Telefon aynı anda",
-                    icon: "speaker.slash.fill",
-                    color: .red
-                ) {
-                    syncService.muteAll()
-                }
-                
                 // Refresh Status
                 ActionButton(
                     title: "Ekosistemi Yenile",
-                    subtitle: "Mac + Telefon anlık senkron",
+                    subtitle: "Telefon + Mac anlık senkron",
                     icon: "arrow.triangle.2.circlepath",
                     color: .blue
                 ) {

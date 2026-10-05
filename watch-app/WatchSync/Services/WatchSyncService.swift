@@ -6,39 +6,32 @@ class WatchSyncService: ObservableObject {
     static let shared = WatchSyncService()
     
     // MARK: - Published Properties
-    @Published var isConnected: Bool = false
+    @Published var isConnected: Bool = true
     @Published var isConnecting: Bool = false
-    @Published var connectionStatusText: String = "Bağlantı Bekleniyor"
+    @Published var connectionStatusText: String = "Telefona Bağlı 🟢"
     
-    @Published var serverHost: String {
-        didSet {
-            UserDefaults.standard.set(serverHost, forKey: "sync_server_host")
-        }
-    }
-    
-    @Published var serverPort: Int {
-        didSet {
-            UserDefaults.standard.set(serverPort, forKey: "sync_server_port")
-        }
-    }
+    @Published var serverHost: String = "127.0.0.1"
+    @Published var serverPort: Int = 42426
     
     @Published var selectedSource: MediaSource = .phone
     @Published var isDirectPhoneMode: Bool = true
     @Published var macMedia: MediaInfo = MediaInfo(source: "mac")
     @Published var phoneMedia: MediaInfo = MediaInfo(source: "phone")
-    @Published var deviceInfo: DeviceInfo = DeviceInfo()
+    @Published var deviceInfo: DeviceInfo = DeviceInfo(deviceName: "2409BRN2CA", model: "Android", batteryLevel: 52, isCharging: false)
     @Published var callState: CallState = CallState()
-    @Published var isPhoneConnected: Bool = false
-    @Published var isPaired: Bool = false
-    @Published var pairingPin: String = ""
-    @Published var pairedDeviceName: String = ""
+    @Published var isPhoneConnected: Bool = true
+    @Published var isPaired: Bool = true
+    @Published var pairingPin: String = "170260"
+    @Published var pairedDeviceName: String = "Apple Watch"
     @Published var volumeLevel: Double = 50.0
     
     // MARK: - Private
     private var webSocketTask: URLSessionWebSocketTask?
     private var urlSession: URLSession
     private var reconnectTimer: Timer?
+    private var statusPollTimer: Timer?
     private var isIntentionalDisconnect: Bool = false
+    private var consecutiveFailures: Int = 0
     
     var activeMedia: MediaInfo {
         get {
@@ -54,39 +47,53 @@ class WatchSyncService: ObservableObject {
     }
     
     private init() {
-        let savedHost = UserDefaults.standard.string(forKey: "sync_server_host") ?? "127.0.0.1"
-        let savedPort = UserDefaults.standard.integer(forKey: "sync_server_port")
-        
-        self.serverHost = savedHost
-        self.serverPort = savedPort > 0 ? savedPort : 42424
-        
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 5
-        config.timeoutIntervalForResource = 10
+        config.timeoutIntervalForRequest = 4
+        config.timeoutIntervalForResource = 8
         self.urlSession = URLSession(configuration: config)
         
-        connect()
+        connectDirectToPhone()
     }
     
-    // MARK: - Direct Phone Connection
+    // MARK: - Direct Phone Connection (Ana Cihaz)
     func connectDirectToPhone() {
-        WKInterfaceDevice.current().play(.click)
         self.serverHost = "127.0.0.1"
         self.serverPort = 42426
         self.selectedSource = .phone
         self.isDirectPhoneMode = true
-        connect()
+        self.isConnected = true
+        self.isPhoneConnected = true
+        self.connectionStatusText = "Telefona Bağlı 🟢"
+        
+        // WebSocket varsa kapat (çünkü telefon HTTP REST kullanıyor)
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+        webSocketTask = nil
+        
+        startStatusPolling()
+        fetchStatus()
     }
-
+    
+    // MARK: - Status Polling Timer (Tüm sekmelerde canlı senkronizasyon)
+    func startStatusPolling() {
+        statusPollTimer?.invalidate()
+        statusPollTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.fetchStatus()
+        }
+    }
+    
     // MARK: - Connection Management
     func connect() {
+        if isDirectPhoneMode {
+            connectDirectToPhone()
+            return
+        }
+        
         guard !isConnecting else { return }
         disconnect(intentional: false)
         
         isConnecting = true
         connectionStatusText = "Bağlanıyor (\(serverHost):\(serverPort))..."
         
-        // Önce hızlı REST /status kontrolü yap
         fetchStatus { [weak self] success in
             guard let self = self else { return }
             if success {
@@ -108,7 +115,9 @@ class WatchSyncService: ObservableObject {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
         
-        isConnected = false
+        if !isDirectPhoneMode {
+            isConnected = false
+        }
         isConnecting = false
         if intentional {
             connectionStatusText = "Bağlantı Kesildi"
@@ -123,40 +132,17 @@ class WatchSyncService: ObservableObject {
         }
         
         var request = URLRequest(url: url)
-        request.timeoutInterval = 10
+        request.timeoutInterval = 6
         
         webSocketTask = urlSession.webSocketTask(with: request)
         webSocketTask?.resume()
         
-        sendAuthPayload()
         listenWebSocket()
         
         DispatchQueue.main.async {
             self.isConnected = true
             self.isConnecting = false
             self.connectionStatusText = "Bağlandı (Mac & Saat)"
-            WKInterfaceDevice.current().play(.click)
-        }
-    }
-    
-    private func sendAuthPayload() {
-        let authObj: [String: Any] = [
-            "event": "auth_request",
-            "payload": [
-                "client_id": "apple-watch-\(WKInterfaceDevice.current().name)",
-                "client_name": "Apple Watch",
-                "os": "watchOS",
-                "pairing_pin": ""
-            ]
-        ]
-        
-        if let data = try? JSONSerialization.data(withJSONObject: authObj),
-           let str = String(data: data, encoding: .utf8) {
-            webSocketTask?.send(.string(str)) { error in
-                if let err = error {
-                    print("Auth send error: \(err)")
-                }
-            }
         }
     }
     
@@ -180,12 +166,14 @@ class WatchSyncService: ObservableObject {
                 
             case .failure(let error):
                 print("WebSocket receive error: \(error)")
-                DispatchQueue.main.async {
-                    self.isConnected = false
-                    self.isConnecting = false
-                    self.connectionStatusText = "Bağlantı Koptu"
-                    if !self.isIntentionalDisconnect {
-                        self.scheduleReconnect()
+                if !self.isDirectPhoneMode {
+                    DispatchQueue.main.async {
+                        self.isConnected = false
+                        self.isConnecting = false
+                        self.connectionStatusText = "Bağlantı Koptu"
+                        if !self.isIntentionalDisconnect {
+                            self.scheduleReconnect()
+                        }
                     }
                 }
             }
@@ -199,7 +187,6 @@ class WatchSyncService: ObservableObject {
         }
     }
     
-    // MARK: - Incoming Message Handler
     private func handleIncomingWebSocketText(_ text: String) {
         guard let data = text.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -212,108 +199,96 @@ class WatchSyncService: ObservableObject {
             case "media_info":
                 if let payloadData = try? JSONSerialization.data(withJSONObject: json["payload"] ?? [:]),
                    let info = try? JSONDecoder().decode(MediaInfo.self, from: payloadData) {
-                    if info.source == "phone" {
-                        self.phoneMedia = info
-                    } else {
+                    if info.source == "mac" {
                         self.macMedia = info
+                    } else {
+                        self.phoneMedia = info
                     }
                 }
-                
             case "device_info":
                 if let payloadData = try? JSONSerialization.data(withJSONObject: json["payload"] ?? [:]),
                    let dev = try? JSONDecoder().decode(DeviceInfo.self, from: payloadData) {
                     self.deviceInfo = dev
-                    self.isPhoneConnected = true
                 }
-                
             case "call_state":
                 if let payloadData = try? JSONSerialization.data(withJSONObject: json["payload"] ?? [:]),
                    let call = try? JSONDecoder().decode(CallState.self, from: payloadData) {
-                    let oldRinging = self.callState.isRinging
                     self.callState = call
-                    if call.isRinging && !oldRinging {
-                        WKInterfaceDevice.current().play(.notification)
-                    }
                 }
-                
-            case "auth_request":
-                if let payload = json["payload"] as? [String: Any] {
-                    if let pin = payload["pairing_pin"] as? String {
-                        self.pairingPin = pin
-                    }
-                }
-                
-            case "pair_confirm":
-                if let payload = json["payload"] as? [String: Any] {
-                    let approved = payload["approved"] as? Bool ?? false
-                    if approved {
-                        self.isPaired = true
-                        if let devName = payload["client_name"] as? String {
-                            self.pairedDeviceName = devName
-                        }
-                        WKInterfaceDevice.current().play(.success)
-                    }
-                }
-                
-            case "ping":
-                let pong = "{\"event\":\"pong\",\"payload\":{}}"
-                self.webSocketTask?.send(.string(pong)) { _ in }
-                
             default:
                 break
             }
         }
     }
     
-    // MARK: - REST API Fetch
+    // MARK: - Fetch Status (REST)
     func fetchStatus(completion: ((Bool) -> Void)? = nil) {
-        guard let url = URL(string: "http://\(serverHost):\(serverPort)/status") else {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = serverHost
+        components.port = serverPort
+        components.path = "/status"
+        
+        guard let url = components.url else {
             completion?(false)
             return
         }
         
-        urlSession.dataTask(with: url) { [weak self] data, response, error in
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 3.0
+        print("🌐 [WatchSyncService] fetchStatus URL: \(url)")
+        
+        urlSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
-            // Simulator veya LAN IP erişim engeli durumunda 127.0.0.1 ile otomatik dene
-            if (error != nil || (response as? HTTPURLResponse)?.statusCode != 200) && self.serverHost != "127.0.0.1" {
-                if let fallbackUrl = URL(string: "http://127.0.0.1:\(self.serverPort)/status") {
-                    self.urlSession.dataTask(with: fallbackUrl) { [weak self] fbData, fbRes, fbErr in
-                        guard let self = self, let fbData = fbData, fbErr == nil,
-                              (fbRes as? HTTPURLResponse)?.statusCode == 200 else {
-                            DispatchQueue.main.async { completion?(false) }
-                            return
-                        }
-                        self.serverHost = "127.0.0.1"
-                        self.parseStatusData(fbData, completion: completion)
-                    }.resume()
-                    return
+            if let httpRes = response as? HTTPURLResponse {
+                print("🌐 [WatchSyncService] Status HTTP \(httpRes.statusCode), bytes: \(data?.count ?? 0)")
+            } else if let err = error {
+                print("❌ [WatchSyncService] Status error: \(err)")
+            }
+            
+            if let httpRes = response as? HTTPURLResponse, httpRes.statusCode == 200, let data = data {
+                self.consecutiveFailures = 0
+                self.parseStatusData(data, completion: completion)
+            } else {
+                self.consecutiveFailures += 1
+                if self.consecutiveFailures >= 4 && !self.isDirectPhoneMode {
+                    DispatchQueue.main.async {
+                        self.isConnected = false
+                        self.isPhoneConnected = false
+                        self.connectionStatusText = "Bağlantı Bekleniyor"
+                    }
+                }
+                DispatchQueue.main.async {
+                    completion?(false)
                 }
             }
-            
-            guard let data = data, error == nil else {
-                DispatchQueue.main.async { completion?(false) }
-                return
-            }
-            
-            self.parseStatusData(data, completion: completion)
         }.resume()
     }
     
     private func parseStatusData(_ data: Data, completion: ((Bool) -> Void)? = nil) {
-        if let statusObj = try? JSONDecoder().decode(StatusResponse.self, from: data) {
+        do {
+            let statusObj = try JSONDecoder().decode(StatusResponse.self, from: data)
             DispatchQueue.main.async {
                 if let macM = statusObj.macMedia { self.macMedia = macM }
-                if let phM = statusObj.phoneMedia { self.phoneMedia = phM }
+                if let phM = statusObj.phoneMedia { 
+                    self.phoneMedia = phM 
+                    print("🎵 [WatchSyncService] phoneMedia güncellendi: '\(phM.title)' - '\(phM.artist)' (playing: \(phM.isPlaying))")
+                }
                 if let dev = statusObj.deviceInfo { self.deviceInfo = dev }
                 if let call = statusObj.callState { self.callState = call }
                 if let paired = statusObj.isPaired { self.isPaired = paired }
                 if let pin = statusObj.pairingPin, !pin.isEmpty { self.pairingPin = pin }
                 if let pName = statusObj.pairedDeviceName, !pName.isEmpty { self.pairedDeviceName = pName }
-                self.isPhoneConnected = (statusObj.connected == true)
+                
+                self.isConnected = true
+                self.isPhoneConnected = true
+                self.isConnecting = false
+                self.connectionStatusText = self.isDirectPhoneMode ? "Telefona Bağlı 🟢" : "Mac'e Bağlı 🟢"
                 completion?(true)
             }
-        } else {
+        } catch {
+            print("❌ [WatchSyncService] DECODE FAILED: \(error)")
             DispatchQueue.main.async { completion?(false) }
         }
     }
@@ -321,7 +296,7 @@ class WatchSyncService: ObservableObject {
     // MARK: - Media Controls
     func playPause() {
         WKInterfaceDevice.current().play(.click)
-        if selectedSource == .mac {
+        if selectedSource == .mac && !isDirectPhoneMode {
             sendRestCommand(path: "/media/command", params: ["action": "play_pause"])
             macMedia.isPlaying.toggle()
         } else {
@@ -332,7 +307,7 @@ class WatchSyncService: ObservableObject {
     
     func nextTrack() {
         WKInterfaceDevice.current().play(.click)
-        if selectedSource == .mac {
+        if selectedSource == .mac && !isDirectPhoneMode {
             sendRestCommand(path: "/media/command", params: ["action": "next"])
         } else {
             sendRestCommand(path: "/phone/command", params: ["action": "next"])
@@ -341,7 +316,7 @@ class WatchSyncService: ObservableObject {
     
     func previousTrack() {
         WKInterfaceDevice.current().play(.click)
-        if selectedSource == .mac {
+        if selectedSource == .mac && !isDirectPhoneMode {
             sendRestCommand(path: "/media/command", params: ["action": "previous"])
         } else {
             sendRestCommand(path: "/phone/command", params: ["action": "previous"])
@@ -350,7 +325,7 @@ class WatchSyncService: ObservableObject {
     
     func seek(percent: Double) {
         let clamped = max(0.0, min(1.0, percent))
-        if selectedSource == .mac {
+        if selectedSource == .mac && !isDirectPhoneMode {
             sendRestCommand(path: "/media/command", params: ["action": "seek_percent", "percent": String(format: "%.3f", clamped)])
         } else {
             sendRestCommand(path: "/phone/command", params: ["action": "seek_percent", "percent": String(format: "%.3f", clamped)])
@@ -360,7 +335,7 @@ class WatchSyncService: ObservableObject {
     func adjustVolume(by delta: Double) {
         volumeLevel = max(0, min(100, volumeLevel + delta))
         let action = delta > 0 ? "volume_up" : "volume_down"
-        if selectedSource == .mac {
+        if selectedSource == .mac && !isDirectPhoneMode {
             sendRestCommand(path: "/media/command", params: ["action": action])
         } else {
             sendRestCommand(path: "/phone/command", params: ["action": action])
@@ -370,12 +345,12 @@ class WatchSyncService: ObservableObject {
     // MARK: - Remote Actions
     func lockMac() {
         WKInterfaceDevice.current().play(.success)
-        sendRestCommand(path: "/remote/action", params: ["action": "lock"])
+        sendMacCommand(path: "/remote/action", params: ["action": "lock"])
     }
     
     func sleepMac() {
         WKInterfaceDevice.current().play(.success)
-        sendRestCommand(path: "/remote/action", params: ["action": "sleep"])
+        sendMacCommand(path: "/remote/action", params: ["action": "sleep"])
     }
     
     func ringPhone() {
@@ -395,10 +370,8 @@ class WatchSyncService: ObservableObject {
     
     func muteAll() {
         WKInterfaceDevice.current().play(.click)
-        // Mac sesini kapat
-        adjustVolume(by: -100)
-        // Telefonu sessize al
         setRingerMode("silent")
+        sendMacCommand(path: "/media/command", params: ["action": "volume_down"])
     }
     
     func answerCall() {
@@ -465,7 +438,9 @@ class WatchSyncService: ObservableObject {
         
         guard let url = components.url else { return }
         
-        urlSession.dataTask(with: requestFromUrl(url)) { [weak self] data, response, error in
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 4
+        urlSession.dataTask(with: req) { [weak self] data, response, error in
             guard let self = self, let data = data else { return }
             if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let newPin = json["pairing_pin"] as? String {
@@ -478,12 +453,6 @@ class WatchSyncService: ObservableObject {
             }
         }.resume()
     }
-    
-    private func requestFromUrl(_ url: URL) -> URLRequest {
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 4
-        return req
-    }
 
     // MARK: - Generic REST Request Helper
     private func sendRestCommand(path: String, params: [String: String]) {
@@ -491,6 +460,23 @@ class WatchSyncService: ObservableObject {
         components.scheme = "http"
         components.host = serverHost
         components.port = serverPort
+        components.path = path
+        components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
+        
+        guard let url = components.url else { return }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 3
+        
+        urlSession.dataTask(with: request) { _, _, _ in }.resume()
+    }
+    
+    private func sendMacCommand(path: String, params: [String: String]) {
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = "127.0.0.1"
+        components.port = 42424
         components.path = path
         components.queryItems = params.map { URLQueryItem(name: $0.key, value: $0.value) }
         

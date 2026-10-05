@@ -12,36 +12,43 @@ struct MediaView: View {
         syncService.activeMedia
     }
     
+    var isPhoneActive: Bool {
+        syncService.isPhoneConnected || syncService.isConnected
+    }
+    
     var body: some View {
+        let _ = print("🎵 [MediaView] Rendered. title: \(media.title), isPhoneActive: \(isPhoneActive)")
         ScrollView {
             VStack(spacing: 8) {
                 // MARK: - Dual Device Simultaneous Live Status Bar
                 HStack(spacing: 8) {
+                    // 1. Ana Cihaz: Telefon
                     HStack(spacing: 3) {
-                        Image(systemName: "laptopcomputer")
+                        Image(systemName: "iphone")
                             .font(.system(size: 9))
-                            .foregroundColor(syncService.isConnected ? .green : .red)
-                        Text("Mac")
+                            .foregroundColor(isPhoneActive ? .green : .orange)
+                        Text(isPhoneActive ? "Tel %\(syncService.deviceInfo.batteryLevel)" : "Tel Bekleniyor")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(syncService.isConnected ? .primary : .secondary)
+                            .foregroundColor(isPhoneActive ? .primary : .secondary)
+                        if syncService.deviceInfo.isCharging {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 8))
+                                .foregroundColor(.yellow)
+                        }
                     }
                     
                     Text("•")
                         .font(.system(size: 8))
                         .foregroundColor(.secondary)
                     
+                    // 2. İkincil Cihaz: Mac
                     HStack(spacing: 3) {
-                        Image(systemName: "iphone")
+                        Image(systemName: "laptopcomputer")
                             .font(.system(size: 9))
-                            .foregroundColor(syncService.isPhoneConnected ? .green : .orange)
-                        Text(syncService.isPhoneConnected ? "Tel %\(syncService.deviceInfo.batteryLevel)" : "Tel Bekleniyor")
+                            .foregroundColor(.cyan)
+                        Text("Mac")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(syncService.isPhoneConnected ? .primary : .secondary)
-                        if syncService.deviceInfo.isCharging {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 8))
-                                .foregroundColor(.yellow)
-                        }
+                            .foregroundColor(.cyan)
                     }
                 }
                 .padding(.vertical, 3)
@@ -49,10 +56,11 @@ struct MediaView: View {
                 .background(Color.white.opacity(0.08))
                 .cornerRadius(10)
                 
-                // MARK: - Source Selector (Mac vs Telefon - Çift Yönlü Eşzamanlı Kontrol)
+                // MARK: - Source Selector (Telefon vs Mac)
                 HStack(spacing: 6) {
                     ForEach(MediaSource.allCases) { source in
                         let isThisPlaying = (source == .mac ? syncService.macMedia.isPlaying : syncService.phoneMedia.isPlaying)
+                        
                         Button(action: {
                             WKInterfaceDevice.current().play(.click)
                             syncService.selectedSource = source
@@ -74,7 +82,7 @@ struct MediaView: View {
                             .frame(maxWidth: .infinity)
                             .background(
                                 syncService.selectedSource == source
-                                ? Color.blue.opacity(0.85)
+                                ? (source == .phone ? Color.green.opacity(0.85) : Color.blue.opacity(0.85))
                                 : Color.white.opacity(0.12)
                             )
                             .cornerRadius(12)
@@ -86,13 +94,13 @@ struct MediaView: View {
                 
                 // MARK: - Track Info
                 VStack(spacing: 2) {
-                    Text(media.title.isEmpty ? "Medyada Bir Şey Çalmıyor" : media.title)
+                    Text(media.title.isEmpty ? (syncService.selectedSource == .phone ? "Telefon Medyası Hazır" : "Mac Medyası Hazır") : media.title)
                         .font(.system(size: 14, weight: .bold))
                         .foregroundColor(.primary)
                         .lineLimit(1)
                         .multilineTextAlignment(.center)
                     
-                    Text(media.artist.isEmpty ? "Beklemede..." : media.artist)
+                    Text(media.artist.isEmpty ? (isPhoneActive ? "Çalmak için dokunun" : "Beklemede...") : media.artist)
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -109,7 +117,7 @@ struct MediaView: View {
                                 .frame(height: 5)
                             
                             Capsule()
-                                .fill(LinearGradient(colors: [.cyan, .blue], startPoint: .leading, endPoint: .trailing))
+                                .fill(LinearGradient(colors: [.cyan, .green], startPoint: .leading, endPoint: .trailing))
                                 .frame(width: max(0, min(geo.size.width, geo.size.width * CGFloat(media.percent))), height: 5)
                         }
                         .gesture(
@@ -211,6 +219,7 @@ struct MediaView: View {
         }
         .onAppear {
             crownVolume = syncService.volumeLevel
+            syncService.fetchStatus()
         }
     }
     

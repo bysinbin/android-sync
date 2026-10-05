@@ -170,7 +170,9 @@ class WatchCompanionServer(private val context: Context, val port: Int = 42424) 
             ),
             "phone_media" to mediaMap,
             "call_state" to mapOf(
-                "state" to "IDLE"
+                "state" to "IDLE",
+                "phone_number" to "",
+                "caller_name" to ""
             )
         )
 
