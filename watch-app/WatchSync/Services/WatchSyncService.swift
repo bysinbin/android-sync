@@ -325,10 +325,13 @@ class WatchSyncService: ObservableObject {
     
     func seek(percent: Double) {
         let clamped = max(0.0, min(1.0, percent))
+        let pct100 = clamped * 100.0
+        let pctStr = String(format: "%.1f", pct100)
+        print("⌚ [WatchSyncService] Seek: clamped=\(clamped), pct100=\(pctStr), source=\(selectedSource)")
         if selectedSource == .mac && !isDirectPhoneMode {
-            sendRestCommand(path: "/media/command", params: ["action": "seek_percent", "percent": String(format: "%.3f", clamped)])
+            sendRestCommand(path: "/media/command", params: ["action": "SEEK_PERCENT", "percent": pctStr])
         } else {
-            sendRestCommand(path: "/phone/command", params: ["action": "seek_percent", "percent": String(format: "%.3f", clamped)])
+            sendRestCommand(path: "/phone/command", params: ["action": "SEEK_PERCENT:\(pctStr)", "percent": pctStr])
         }
     }
     
