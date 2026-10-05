@@ -118,6 +118,8 @@ class WatchCompanionServer(private val context: Context, val port: Int = 42424) 
                 path == "/phone/command" -> handlePhoneCommand(queryMap, out)
                 path == "/ringer/set" -> handleRingerSet(queryMap, out)
                 path == "/call/action" -> handleCallAction(queryMap, out)
+                path == "/notification/dismiss" -> handleNotificationDismiss(queryMap, out)
+                path == "/notification/clear" -> handleNotificationClear(out)
                 else -> sendJsonResponse(out, 404, mapOf("error" to "Not Found"))
             }
 
@@ -246,6 +248,24 @@ class WatchCompanionServer(private val context: Context, val port: Int = 42424) 
         val action = params["action"]?.uppercase() ?: ""
         CallManager.handleCallAction(context, action)
         sendJsonResponse(out, 200, mapOf("success" to true, "call_action" to action))
+    }
+
+    private fun handleNotificationDismiss(params: Map<String, String>, out: OutputStream) {
+        val id = params["id"] ?: ""
+        if (id.isNotEmpty()) {
+            val target = SyncNotificationListenerService.recentNotifications.firstOrNull { it["id"] == id }
+            SyncNotificationListenerService.recentNotifications.removeIf { it["id"] == id }
+            val key = target?.get("key")?.toString() ?: ""
+            if (key.isNotEmpty()) {
+                SyncNotificationListenerService.dismissNotification(key)
+            }
+        }
+        sendJsonResponse(out, 200, mapOf("success" to true))
+    }
+
+    private fun handleNotificationClear(out: OutputStream) {
+        SyncNotificationListenerService.recentNotifications.clear()
+        sendJsonResponse(out, 200, mapOf("success" to true))
     }
 
     private fun sendJsonResponse(out: OutputStream, statusCode: Int, data: Any) {

@@ -120,6 +120,29 @@ struct MediaView: View {
                             .font(.system(size: 9, weight: .bold))
                             .foregroundColor(.cyan)
                     }
+                    
+                    if !syncService.notifications.isEmpty {
+                        Text("•")
+                            .font(.system(size: 8))
+                            .foregroundColor(.secondary)
+                        
+                        Button(action: {
+                            WKInterfaceDevice.current().play(.click)
+                            withAnimation {
+                                syncService.currentTab = 1
+                            }
+                        }) {
+                            HStack(spacing: 2) {
+                                Image(systemName: "bell.fill")
+                                    .font(.system(size: 8))
+                                    .foregroundColor(.orange)
+                                Text("\(syncService.notifications.count)")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(.orange)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.vertical, 2)
                 .padding(.horizontal, 7)

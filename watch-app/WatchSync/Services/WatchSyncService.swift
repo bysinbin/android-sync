@@ -1,8 +1,9 @@
 import Foundation
 import SwiftUI
 import WatchKit
+import UserNotifications
 
-class WatchSyncService: ObservableObject {
+class WatchSyncService: NSObject, ObservableObject, WKExtendedRuntimeSessionDelegate, UNUserNotificationCenterDelegate {
     static let shared = WatchSyncService()
     
     // MARK: - Published Properties
@@ -24,6 +25,7 @@ class WatchSyncService: ObservableObject {
     @Published var pairingPin: String = "170260"
     @Published var pairedDeviceName: String = "Apple Watch"
     @Published var volumeLevel: Double = 50.0
+    @Published var currentTab: Int = 0
     @Published var notifications: [NotificationItem] = []
     @Published var activeBanner: NotificationItem? = nil
     
@@ -37,6 +39,7 @@ class WatchSyncService: ObservableObject {
     private var seenNotificationIds: Set<String> = []
     private var bannerDismissTimer: Timer?
     private var isInitialPollDone: Bool = false
+    private var extendedSession: WKExtendedRuntimeSession?
     
     var activeMedia: MediaInfo {
         get {
@@ -51,19 +54,26 @@ class WatchSyncService: ObservableObject {
         }
     }
     
-    private init() {
+    override private init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 4
         config.timeoutIntervalForResource = 8
         self.urlSession = URLSession(configuration: config)
+        super.init()
+        
+        UNUserNotificationCenter.current().delegate = self
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            print("🔔 [WatchSync] Bildirim izni verildi: \(granted)")
+        }
         
         connectDirectToPhone()
+        startExtendedSession()
     }
     
     // MARK: - Direct Phone Connection (Ana Cihaz)
     func connectDirectToPhone() {
         self.serverHost = "127.0.0.1"
-        self.serverPort = 42426
+        self.serverPort = 42424
         self.selectedSource = .phone
         self.isDirectPhoneMode = true
         self.isConnected = true
@@ -257,7 +267,12 @@ class WatchSyncService: ObservableObject {
                 self.parseStatusData(data, completion: completion)
             } else {
                 self.consecutiveFailures += 1
-                if self.consecutiveFailures >= 4 && !self.isDirectPhoneMode {
+                if self.consecutiveFailures >= 2 {
+                    let fallbackPort = (self.serverPort == 42426) ? 42424 : 42426
+                    self.serverPort = fallbackPort
+                    print("🔄 [WatchSyncService] Port fallback -> \(fallbackPort)")
+                }
+                if self.consecutiveFailures >= 6 {
                     DispatchQueue.main.async {
                         self.isConnected = false
                         self.isPhoneConnected = false
@@ -293,9 +308,10 @@ class WatchSyncService: ObservableObject {
                         }
                         self.isInitialPollDone = true
                     } else {
-                        if let newest = notifs.first, !self.seenNotificationIds.contains(newest.id) {
-                            self.seenNotificationIds.insert(newest.id)
-                            self.triggerNotificationBanner(newest)
+                        let unseen = notifs.filter { !self.seenNotificationIds.contains($0.id) }
+                        for item in unseen.reversed() {
+                            self.seenNotificationIds.insert(item.id)
+                            self.triggerNotificationBanner(item)
                         }
                     }
                 }
@@ -316,6 +332,8 @@ class WatchSyncService: ObservableObject {
     func triggerNotificationBanner(_ item: NotificationItem) {
         print("🔔 [WatchSyncService] Yeni bildirim geldi: [\(item.appName)] \(item.title) - \(item.text)")
         WKInterfaceDevice.current().play(.notification)
+        postNativeWatchNotification(item)
+        
         withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
             self.activeBanner = item
         }
@@ -324,6 +342,79 @@ class WatchSyncService: ObservableObject {
             withAnimation(.easeOut(duration: 0.25)) {
                 self?.activeBanner = nil
             }
+        }
+    }
+    
+    func postNativeWatchNotification(_ item: NotificationItem) {
+        let content = UNMutableNotificationContent()
+        let app = item.appName.isEmpty ? "Bildirim" : item.appName
+        content.title = app
+        if !item.title.isEmpty && item.title != app {
+            content.subtitle = item.title
+        }
+        content.body = item.text
+        content.sound = .default
+        
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(identifier: item.id, content: content, trigger: trigger)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let err = error {
+                print("❌ [WatchSync] Native bildirim ekleme hatası: \(err)")
+            } else {
+                print("✅ [WatchSync] Native sistem bildirimi yayınlandı!")
+            }
+        }
+    }
+    
+    func clearAllNotifications() {
+        WKInterfaceDevice.current().play(.click)
+        withAnimation {
+            self.notifications.removeAll()
+            self.activeBanner = nil
+        }
+        sendRestCommand(path: "/notification/clear", params: [:])
+    }
+    
+    func dismissNotification(id: String) {
+        withAnimation {
+            self.notifications.removeAll { $0.id == id }
+            if self.activeBanner?.id == id {
+                self.activeBanner = nil
+            }
+        }
+        sendRestCommand(path: "/notification/dismiss", params: ["id": id])
+    }
+    
+    // MARK: - UNUserNotificationCenterDelegate
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner, .sound, .badge])
+    }
+    
+    // MARK: - Extended Runtime Session (Arka Plan Canlı Tutma)
+    func startExtendedSession() {
+        if extendedSession == nil || extendedSession?.state == .invalid {
+            extendedSession = WKExtendedRuntimeSession()
+            extendedSession?.delegate = self
+            extendedSession?.start()
+            print("⌚ [WatchSync] WKExtendedRuntimeSession başlatıldı.")
+        }
+    }
+    
+    func extendedRuntimeSessionDidStart(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        print("⌚ [WatchSync] Arka plan sürekli çalışma oturumu devrede.")
+    }
+    
+    func extendedRuntimeSessionWillExpire(_ extendedRuntimeSession: WKExtendedRuntimeSession) {
+        print("⌚ [WatchSync] Arka plan oturumu yenileniyor...")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.startExtendedSession()
+        }
+    }
+    
+    func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {
+        print("⌚ [WatchSync] Arka plan oturumu sonlandı (reason: \(reason)). Yeniden başlatılıyor...")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.startExtendedSession()
         }
     }
 

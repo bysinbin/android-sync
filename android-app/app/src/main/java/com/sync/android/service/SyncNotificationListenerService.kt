@@ -183,6 +183,7 @@ class SyncNotificationListenerService : NotificationListenerService() {
         val notifId = "${sbn.id}_${sbn.postTime}"
         val notifMap = mapOf(
             "id" to notifId,
+            "key" to sbn.key,
             "package_name" to pkgName,
             "app_name" to (if (isCall) "📞 $appName (Gelen Arama)" else appName),
             "title" to title,
